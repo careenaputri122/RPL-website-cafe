@@ -1,0 +1,1 @@
+<section class="dc-page-hero small"><div class="container"><span class="dc-section-badge">404</span><h1>Halaman Tidak Ditemukan</h1><p>Route <strong><?= e($route) ?></strong> belum tersedia.</p><a href="<?= url('home') ?>" class="btn dc-btn-submit mt-3">Kembali ke Home</a></div></section>
