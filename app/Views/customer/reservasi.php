@@ -1,6 +1,12 @@
 <section class="dc-page-hero small"><div class="container"><span class="dc-section-badge">BOOKING</span><h1>Reservasi Meja</h1><p>Pesan meja favorit Anda dengan mudah.</p></div></section>
 <section class="py-5"><div class="container">
-  <div class="dc-stepper mb-4"><span class="active">1 Tanggal & Waktu</span><span>2 Detail Tamu</span><span>3 Konfirmasi</span></div>
+  <div class="dc-stepper mb-4">
+    <div class="dc-stepper-step active"><span class="dc-step-circle">1</span><span class="dc-step-label">Tanggal &amp; Waktu</span></div>
+    <div class="dc-stepper-line"></div>
+    <div class="dc-stepper-step"><span class="dc-step-circle">2</span><span class="dc-step-label">Detail Tamu</span></div>
+    <div class="dc-stepper-line"></div>
+    <div class="dc-stepper-step"><span class="dc-step-circle">3</span><span class="dc-step-label">Konfirmasi</span></div>
+  </div>
   <form method="POST" action="<?= url('reservasi/store') ?>" class="row g-4 dc-reservation-form"><?= csrf_field() ?>
     <div class="col-lg-8">
       <div class="dc-panel">

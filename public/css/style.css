@@ -107,9 +107,13 @@ a { text-decoration: none; }
 .dc-product-body strong { color:var(--gold-dark); }
 .dc-add-mini { width:32px; height:32px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center; background:var(--gold); color:#fff; border:0; }
 .dc-add-mini.disabled, .dc-add-mini:disabled { opacity:.35; pointer-events:none; }
-.dc-stepper { display:flex; gap:.75rem; flex-wrap:wrap; }
-.dc-stepper span { background:#f3f4f6; color:#6b7280; border-radius:999px; padding:.6rem 1rem; font-weight:900; font-size:.85rem; }
-.dc-stepper span.active { background:var(--gold); color:#fff; }
+.dc-stepper { display:flex; align-items:center; gap:0; }
+.dc-stepper-step { display:flex; align-items:center; gap:.6rem; }
+.dc-stepper-step .dc-step-circle { width:2rem; height:2rem; border-radius:50%; background:#e5e7eb; color:#9ca3af; font-weight:700; font-size:.85rem; display:flex; align-items:center; justify-content:center; flex-shrink:0; transition:background .2s,color .2s; }
+.dc-stepper-step .dc-step-label { font-weight:600; font-size:.9rem; color:#9ca3af; white-space:nowrap; transition:color .2s; }
+.dc-stepper-step.active .dc-step-circle { background:var(--gold); color:#fff; }
+.dc-stepper-step.active .dc-step-label { color:#111827; }
+.dc-stepper-line { flex:1; height:2px; background:#e5e7eb; min-width:2.5rem; margin:0 .75rem; }
 .dc-panel { padding:1.6rem; }
 .dc-panel h4, .dc-panel h5, .dc-admin-card h4 { font-weight:900; color:#111827; margin-bottom:1rem; }
 .dc-input { border-radius:14px; border:1px solid var(--border); padding:.8rem 1rem; }
