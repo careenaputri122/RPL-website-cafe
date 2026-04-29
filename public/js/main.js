@@ -88,6 +88,11 @@ document.addEventListener('DOMContentLoaded', function () {
     document.querySelectorAll('.dc-table-seat').forEach(b => b.classList.remove('selected'));
     this.classList.add('selected');
     if (orderTable) orderTable.value = this.dataset.table;
+    // reservasi page table picker
+    const reservasiMeja = document.getElementById('reservasiMeja');
+    if (reservasiMeja) reservasiMeja.value = this.dataset.table;
+    const summaryMeja = document.getElementById('summaryMeja');
+    if (summaryMeja) summaryMeja.textContent = 'Meja ' + this.dataset.table;
     updateCheckoutState();
   }));
 

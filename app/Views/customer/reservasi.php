@@ -19,12 +19,25 @@
         </div>
         <div class="row g-3 mt-2">
           <div class="col-md-6"><label class="dc-form-label">Jumlah Orang</label><input type="number" name="jumlah_orang" id="jumlahOrang" min="1" max="20" value="2" class="form-control dc-input" required></div>
-          <div class="col-md-6"><label class="dc-form-label">Pilih Meja</label><select name="no_meja" class="form-select dc-input"><option value="">Otomatis meja terbaik</option><?php foreach ($tables as $t): if ($t['status'] === 'tersedia'): ?><option value="<?= e($t['no_meja']) ?>"><?= e($t['no_meja']) ?> - <?= e($t['kapasitas']) ?> orang</option><?php endif; endforeach; ?></select></div>
+          <div class="col-12">
+            <label class="dc-form-label">Pilih Meja <small class="text-muted fw-normal">(opsional — kosongkan untuk otomatis)</small></label>
+            <input type="hidden" name="no_meja" id="reservasiMeja" value="">
+            <div class="dc-table-grid mt-2">
+              <?php foreach ($tables as $t): ?>
+                <button type="button" class="dc-table-seat <?= e($t['status']) ?>" data-table="<?= e($t['no_meja']) ?>" <?= $t['status'] !== 'tersedia' ? 'disabled' : '' ?>>
+                  <strong><?= e($t['no_meja']) ?></strong>
+                  <span><?= e($t['kapasitas']) ?> org</span>
+                  <small><?= e(ucfirst($t['status'])) ?></small>
+                </button>
+              <?php endforeach; ?>
+            </div>
+            <div class="dc-legend"><span><i class="ok"></i> Tersedia</span><span><i class="bad"></i> Terisi</span></div>
+          </div>
           <div class="col-12"><label class="dc-form-label">Catatan</label><textarea name="catatan" rows="4" class="form-control dc-input" placeholder="Contoh: dekat jendela, kursi bayi, ulang tahun..."></textarea></div>
         </div>
         <button class="btn dc-btn-submit mt-4" type="submit">Buat Reservasi</button>
       </div>
     </div>
-    <div class="col-lg-4"><div class="dc-summary-card sticky-lg-top"><h5>Ringkasan Reservasi</h5><ul><li><i class="fa-regular fa-calendar"></i> <span id="summaryDate"><?= date('d M Y') ?></span></li><li><i class="fa-regular fa-clock"></i> <span id="summaryTime">19:00</span></li><li><i class="fa-solid fa-user-group"></i> <span id="summaryPeople">2 orang</span></li><li><i class="fa-solid fa-chair"></i> Meja terbaik tersedia</li></ul><hr><div class="d-flex justify-content-between"><span>Biaya Booking</span><strong>Rp 15.000</strong></div><small class="text-muted d-block mt-2">*Deposit 50% dari total pesanan pre-order dibayar saat pesan menu. Sisa dilunasi saat kedatangan.</small></div></div>
+    <div class="col-lg-4"><div class="dc-summary-card sticky-lg-top"><h5>Ringkasan Reservasi</h5><ul><li><i class="fa-regular fa-calendar"></i> <span id="summaryDate"><?= date('d M Y') ?></span></li><li><i class="fa-regular fa-clock"></i> <span id="summaryTime">19:00</span></li><li><i class="fa-solid fa-user-group"></i> <span id="summaryPeople">2 orang</span></li><li><i class="fa-solid fa-chair"></i> <span id="summaryMeja">Meja terbaik tersedia</span></li></ul><hr><div class="d-flex justify-content-between"><span>Biaya Booking</span><strong>Rp 15.000</strong></div><small class="text-muted d-block mt-2">*Deposit 50% dari total pesanan pre-order dibayar saat pesan menu. Sisa dilunasi saat kedatangan.</small></div></div>
   </form>
 </div></section>
