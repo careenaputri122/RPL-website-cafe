@@ -66,9 +66,43 @@ function handle_post($route)
         $result = create_reservation($_POST);
         flash_result($result);
         if (!empty($result['ok'])) {
-            redirect_to('riwayat');
+            $resId = (int)$result['id'];
+            $payId = isset($result['payment_id']) ? (int)$result['payment_id'] : 0;
+            if ($payId > 0) {
+                redirect_to('payment?res_id=' . $resId);
+            } else {
+                redirect_to('riwayat');
+            }
         }
         redirect_to('reservasi');
+    }
+
+    if ($route === 'payment_reservasi/upload') {
+        require_login();
+        $resId = (int)(isset($_POST['res_id']) ? $_POST['res_id'] : 0);
+        $payment = find_payment_by_reservasi($resId);
+        if (!$payment) {
+            set_flash('danger', 'Payment reservasi tidak ditemukan.');
+            redirect_to('riwayat');
+        }
+        list($filePath, $uploadError) = save_uploaded_file('bukti_tf', 'uploads/payments', ['jpg', 'jpeg', 'png', 'webp', 'pdf'], 2 * 1024 * 1024);
+        if ($uploadError) {
+            set_flash('danger', $uploadError);
+            redirect_to('payment?res_id=' . $resId);
+        }
+        if (!$filePath) {
+            set_flash('danger', 'Pilih file bukti transfer.');
+            redirect_to('payment?res_id=' . $resId);
+        }
+
+        $pdo = db();
+        $old = db_one('SELECT bukti_tf FROM payment WHERE id_payment = ? LIMIT 1', [$payment['id']]);
+        if ($old && !empty($old['bukti_tf'])) {
+            delete_uploaded_file_if_local($old['bukti_tf']);
+        }
+        db_exec("UPDATE payment SET bukti_tf = ?, status_payment = 'pending', tanggal_upload = NOW() WHERE id_payment = ?", [$filePath, $payment['id']]);
+        set_flash('success', 'Bukti pembayaran reservasi berhasil diunggah. Admin akan verifikasi.');
+        redirect_to('riwayat');
     }
 
     if ($route === 'pesan/store') {
@@ -131,6 +165,13 @@ function handle_post($route)
         redirect_to('admin/pesanan');
     }
 
+    if ($route === 'admin/payment_reservasi/verify') {
+        require_admin();
+        $result = verify_payment(isset($_POST['id']) ? $_POST['id'] : 0, isset($_POST['status']) ? $_POST['status'] : 'verified', isset($_POST['catatan_admin']) ? $_POST['catatan_admin'] : '');
+        flash_result($result);
+        redirect_to('admin/payment');
+    }
+
     if ($route === 'admin/payment/verify') {
         require_admin();
         $result = verify_payment(isset($_POST['id']) ? $_POST['id'] : 0, isset($_POST['status']) ? $_POST['status'] : 'verified', isset($_POST['catatan_admin']) ? $_POST['catatan_admin'] : '');
@@ -167,7 +208,14 @@ switch ($route) {
     case 'payment':
         require_login();
         $orderId = (int)(isset($_GET['order_id']) ? $_GET['order_id'] : 0);
-        render('customer/payment', ['current_page' => 'payment', 'order' => find_order($orderId), 'payment' => find_payment_by_order($orderId)]);
+        $resId = (int)(isset($_GET['res_id']) ? $_GET['res_id'] : 0);
+        if ($resId > 0) {
+            $payment = find_payment_by_reservasi($resId);
+            $reservation = find_reservation($resId, false);
+            render('customer/payment-reservasi', ['current_page' => 'payment', 'payment' => $payment, 'reservation' => $reservation]);
+        } else {
+            render('customer/payment', ['current_page' => 'payment', 'order' => find_order($orderId), 'payment' => find_payment_by_order($orderId)]);
+        }
         break;
     case 'profile':
         require_login();

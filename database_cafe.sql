@@ -137,7 +137,8 @@ CREATE TABLE detail_pesanan (
 
 CREATE TABLE payment (
     id_payment INT AUTO_INCREMENT PRIMARY KEY,
-    id_pesanan INT NOT NULL,
+    id_pesanan INT DEFAULT NULL,
+    id_reservasi INT DEFAULT NULL,
     id_admin INT DEFAULT NULL,
     bukti_tf VARCHAR(255),
     tanggal_upload DATETIME,
@@ -147,11 +148,21 @@ CREATE TABLE payment (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_payment_status (status_payment),
+    INDEX idx_payment_reservasi (id_reservasi),
     CONSTRAINT fk_payment_pesanan FOREIGN KEY (id_pesanan) REFERENCES pesanan(id_pesanan)
-        ON UPDATE CASCADE ON DELETE RESTRICT,
+        ON UPDATE CASCADE ON DELETE SET NULL,
+    CONSTRAINT fk_payment_reservasi FOREIGN KEY (id_reservasi) REFERENCES reservasi(id_reservasi)
+        ON UPDATE CASCADE ON DELETE SET NULL,
     CONSTRAINT fk_payment_admin FOREIGN KEY (id_admin) REFERENCES admin(id_admin)
         ON UPDATE CASCADE ON DELETE SET NULL
 ) ENGINE=InnoDB;
+
+-- MIGRATION SQL untuk database live (jalankan sekali):
+-- ALTER TABLE payment ADD COLUMN id_reservasi INT DEFAULT NULL AFTER id_pesanan;
+-- ALTER TABLE payment ADD INDEX idx_payment_reservasi (id_reservasi);
+-- ALTER TABLE payment DROP FOREIGN KEY fk_payment_pesanan, CHANGE id_pesanan id_pesanan INT DEFAULT NULL;
+-- ALTER TABLE payment ADD CONSTRAINT fk_payment_pesanan FOREIGN KEY (id_pesanan) REFERENCES pesanan(id_pesanan) ON UPDATE CASCADE ON DELETE SET NULL;
+-- ALTER TABLE payment ADD CONSTRAINT fk_payment_reservasi FOREIGN KEY (id_reservasi) REFERENCES reservasi(id_reservasi) ON UPDATE CASCADE ON DELETE SET NULL;
 
 -- Password admin@cafe.com = admin123
 -- Password budi@email.com = password123
