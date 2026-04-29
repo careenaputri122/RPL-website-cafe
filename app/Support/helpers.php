@@ -112,8 +112,14 @@ function verify_csrf_token($token) {
 
 function redirect_back($fallbackRoute = 'home') {
     if (!empty($_SERVER['HTTP_REFERER'])) {
-        header('Location: ' . $_SERVER['HTTP_REFERER']);
-        exit;
+        $referer = $_SERVER['HTTP_REFERER'];
+        // Pastikan referer berasal dari host yang sama
+        $refererHost = parse_url($referer, PHP_URL_HOST);
+        $currentHost = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '';
+        if ($refererHost === $currentHost) {
+            header('Location: ' . $referer);
+            exit;
+        }
     }
     redirect_to($fallbackRoute);
 }
@@ -163,6 +169,8 @@ function require_admin() {
 }
 
 function render($view, $data = []) {
+    // Sanitasi nama view untuk mencegah path traversal
+    $view = preg_replace('/[^a-zA-Z0-9_\/]/', '', $view);
     extract($data);
     $current_page = isset($current_page) ? $current_page : request_route();
     require __DIR__ . '/../Views/layouts/header.php';
@@ -171,6 +179,7 @@ function render($view, $data = []) {
 }
 
 function render_auth($view, $data = []) {
+    $view = preg_replace('/[^a-zA-Z0-9_\/]/', '', $view);
     extract($data);
     require __DIR__ . '/../Views/auth/layout_header.php';
     require __DIR__ . '/../Views/' . $view . '.php';
@@ -179,6 +188,7 @@ function render_auth($view, $data = []) {
 
 function render_admin($view, $data = []) {
     require_admin();
+    $view = preg_replace('/[^a-zA-Z0-9_\/]/', '', $view);
     extract($data);
     $current_admin_page = isset($current_admin_page) ? $current_admin_page : request_route();
     require __DIR__ . '/../Views/admin/layout_header.php';

@@ -49,6 +49,7 @@ function handle_post($route)
 
     if ($route === 'logout') {
         unset($_SESSION['user']);
+        session_regenerate_id(true);
         set_flash('success', 'Anda berhasil logout.');
         redirect_to('home');
     }
@@ -65,7 +66,7 @@ function handle_post($route)
         $result = create_reservation($_POST);
         flash_result($result);
         if (!empty($result['ok'])) {
-            redirect_to('cek-status?highlight=' . (int)$result['id']);
+            redirect_to('riwayat');
         }
         redirect_to('reservasi');
     }
@@ -163,10 +164,6 @@ switch ($route) {
         require_login();
         render('customer/riwayat', ['current_page' => 'riwayat', 'reservations' => get_reservations(false), 'orders' => get_orders(false), 'payments' => get_payments(false)]);
         break;
-    case 'cek-status':
-        require_login();
-        render('customer/cek_status', ['current_page' => 'cek-status', 'reservations' => get_reservations(false), 'orders' => get_orders(false), 'payments' => get_payments(false)]);
-        break;
     case 'payment':
         require_login();
         $orderId = (int)(isset($_GET['order_id']) ? $_GET['order_id'] : 0);
@@ -184,6 +181,7 @@ switch ($route) {
         break;
     case 'logout':
         unset($_SESSION['user']);
+        session_regenerate_id(true);
         set_flash('success', 'Anda berhasil logout.');
         redirect_to('home');
         break;

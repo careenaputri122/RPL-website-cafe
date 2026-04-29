@@ -39,7 +39,6 @@
           <li><a href="<?= url('menu') ?>">Menu Kami</a></li>
           <li><a href="<?= url('reservasi') ?>">Reservasi</a></li>
           <li><a href="<?= url('pesan') ?>">Pesan Sekarang</a></li>
-          <li><a href="<?= url('cek-status') ?>">Cek Status Reservasi</a></li>
           <li><a href="<?= url('riwayat') ?>">Riwayat Pesanan</a></li>
         </ul>
       </div>

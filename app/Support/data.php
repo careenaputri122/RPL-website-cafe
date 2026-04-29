@@ -503,7 +503,9 @@ function find_menu($id)
 
 function find_order($id)
 {
-    foreach (get_orders(is_admin()) as $order) {
+    // Pelanggan hanya boleh lihat pesanan miliknya sendiri
+    $all = is_admin();
+    foreach (get_orders($all) as $order) {
         if ((int)$order['id'] === (int)$id) {
             return $order;
         }
@@ -721,7 +723,11 @@ function dashboard_stats()
             $pendingPayments++;
         }
         if ($p['status'] === 'verified') {
-            $incomeToday += (float)$p['total'];
+            // Hitung income hari ini saja (berdasarkan tanggal verifikasi)
+            $tglVerifikasi = $p['tanggal_verifikasi'] ? substr($p['tanggal_verifikasi'], 0, 10) : null;
+            if ($tglVerifikasi === $today) {
+                $incomeToday += (float)$p['total'];
+            }
         }
     }
     $lowStock = array_filter(get_menus(), function ($m) {
@@ -754,7 +760,7 @@ function authenticate_user($email, $password)
 
     $users = [
         ['id' => 1, 'name' => 'Administrator', 'email' => 'admin@cafe.com', 'password' => 'admin123', 'role' => 'admin', 'phone' => '081234567890'],
-        ['id' => 1, 'name' => 'Budi Santoso', 'email' => 'budi@email.com', 'password' => 'password123', 'role' => 'customer', 'phone' => '081234567891'],
+        ['id' => 2, 'name' => 'Budi Santoso', 'email' => 'budi@email.com', 'password' => 'password123', 'role' => 'customer', 'phone' => '081234567891'],
     ];
     foreach ($_SESSION['registered_users'] as $u) {
         $users[] = $u;
@@ -777,6 +783,9 @@ function register_customer($data)
 
     if ($name === '' || $email === '' || $password === '') {
         return ['ok' => false, 'message' => 'Nama, email, dan password wajib diisi.'];
+    }
+    if ($phone !== '' && !preg_match('/^[0-9+\-\s]{6,20}$/', $phone)) {
+        return ['ok' => false, 'message' => 'Format nomor telepon tidak valid.'];
     }
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         return ['ok' => false, 'message' => 'Format email tidak valid.'];
@@ -832,8 +841,11 @@ function save_profile($data)
         $role = $user['role'];
         $table = $role === 'admin' ? 'admin' : 'pelanggan';
         $idCol = $role === 'admin' ? 'id_admin' : 'id_pelanggan';
-        $exists = db_one("SELECT email FROM $table WHERE email = ? AND $idCol <> ? LIMIT 1", [$email, (int)$user['id']]);
-        if ($exists) {
+        // Cek email di kedua tabel (admin dan pelanggan) agar tidak tumpang tindih
+        $existsInSameTable = db_one("SELECT email FROM $table WHERE email = ? AND $idCol <> ? LIMIT 1", [$email, (int)$user['id']]);
+        $otherTable = $role === 'admin' ? 'pelanggan' : 'admin';
+        $existsInOtherTable = db_one("SELECT email FROM $otherTable WHERE email = ? LIMIT 1", [$email]);
+        if ($existsInSameTable || $existsInOtherTable) {
             return ['ok' => false, 'message' => 'Email sudah digunakan akun lain.'];
         }
         if ($newPassword !== '') {
@@ -1277,6 +1289,7 @@ function delete_menu($id)
         $row = db_one('SELECT foto FROM menu WHERE id_menu = ? LIMIT 1', [$id]);
         try {
             db_exec('DELETE FROM menu WHERE id_menu = ?', [$id]);
+            // Hapus file SETELAH database berhasil
             if ($row) {
                 delete_uploaded_file_if_local($row['foto']);
             }
@@ -1351,7 +1364,7 @@ function update_reservation_status($id, $status)
                 foreach ($orders as $order) {
                     update_order_status((int)$order['id_pesanan'], 'dibatalkan');
                 }
-                db_exec("UPDATE meja m JOIN reservasi r ON r.id_meja = m.id_meja SET m.status = 'tersedia' WHERE r.id_reservasi = ? AND m.status = 'reserved'", [$id]);
+                db_exec("UPDATE meja m JOIN reservasi r ON r.id_meja = m.id_meja SET m.status = 'tersedia' WHERE r.id_reservasi = ? AND m.status = 'terisi'", [$id]);
             }
             return ['ok' => true, 'message' => 'Status reservasi berhasil diperbarui menjadi ' . $status . '.'];
         } catch (Throwable $e) {

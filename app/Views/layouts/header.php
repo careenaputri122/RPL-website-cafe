@@ -21,13 +21,15 @@
     </button>
     <div class="collapse navbar-collapse" id="navMenu">
       <ul class="navbar-nav mx-auto gap-lg-2">
-        <?php $navs = ['home' => 'Home', 'menu' => 'Menu', 'reservasi' => 'Reservasi', 'cek-status' => 'Cek Status', 'pesan' => 'Pesan']; ?>
+        <?php $navs = ['home' => 'Home', 'menu' => 'Menu', 'reservasi' => 'Reservasi', 'pesan' => 'Pesan']; ?>
         <?php foreach ($navs as $key => $label): ?>
           <li class="nav-item"><a class="nav-link dc-nav-link <?= $current_page === $key ? 'active' : '' ?>" href="<?= url($key) ?>"><?= e($label) ?></a></li>
         <?php endforeach; ?>
       </ul>
       <div class="d-flex align-items-center gap-2 dc-nav-actions">
+        <?php if (is_logged_in()): ?>
         <a class="dc-riwayat-link <?= $current_page === 'riwayat' ? 'active' : '' ?>" href="<?= url('riwayat') ?>">Riwayat</a>
+        <?php endif; ?>
         <?php if (is_logged_in()): $user = current_user(); ?>
           <div class="dropdown">
             <button class="btn dc-user-pill dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
@@ -51,5 +53,5 @@
     </div>
   </div>
 </nav>
-<?php require __DIR__ . '/../partials/flash.php'; ?>
 <main class="dc-main">
+<?php require __DIR__ . '/../partials/flash.php'; ?>
