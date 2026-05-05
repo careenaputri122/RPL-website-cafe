@@ -19,7 +19,7 @@ $filterStatus = isset($_GET['status']) ? $_GET['status'] : '';
         <td><?= e($r['kode']) ?></td><td><?= e($r['nama']) ?><br><small><?= e($r['email']) ?></small></td><td><?= e($r['tanggal']) ?></td><td><?= e($r['jam']) ?></td><td><?= e($r['jumlah_orang']) ?></td><td><?= e($r['no_meja']) ?></td><td><span class="dc-status <?= e($r['status']) ?>"><?= e($r['status']) ?></span></td><td><?= e($r['catatan']) ?></td>
         <td><div class="d-flex flex-wrap gap-1">
           <a href="<?= url('admin/reservasi/detail?id=' . $r['id']) ?>" class="btn btn-sm btn-outline-dark">Detail</a>
-          <?php if ($r['status'] !== 'confirmed'): ?><form method="POST" action="<?= url('admin/reservasi/status') ?>"><?= csrf_field() ?><input type="hidden" name="id" value="<?= e($r['id']) ?>"><button name="status" value="confirmed" class="btn btn-sm btn-success">Konfirmasi</button></form><?php endif; ?>
+         
           <?php if ($r['status'] !== 'cancelled'): ?><form method="POST" action="<?= url('admin/reservasi/status') ?>" onsubmit="return confirm('Batalkan reservasi ini? Pesanan pre-order terkait akan ikut dibatalkan dan stok dikembalikan.')"><?= csrf_field() ?><input type="hidden" name="id" value="<?= e($r['id']) ?>"><button name="status" value="cancelled" class="btn btn-sm btn-outline-warning">Batalkan</button></form><?php endif; ?>
           <form method="POST" action="<?= url('admin/reservasi/delete') ?>" onsubmit="return confirm('Hapus reservasi ini?')"><?= csrf_field() ?><input type="hidden" name="id" value="<?= e($r['id']) ?>"><button class="btn btn-sm btn-outline-danger">Hapus</button></form>
         </div></td>

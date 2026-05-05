@@ -22,7 +22,7 @@
 
 <div class="dc-admin-card report-print-area mb-4">
   <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
-    <div><h4 class="mb-1">Laporan Penjualan Cafe Nusantara</h4><p class="text-muted mb-0">Periode <?= e($report['start']) ?> s.d. <?= e($report['end']) ?><?= $filterJenis ? ' - ' . e($filterJenis) : '' ?></p></div>
+    <div><h4 class="mb-1">Laporan Penjualan Cafe Damian</h4><p class="text-muted mb-0">Periode <?= e($report['start']) ?> s.d. <?= e($report['end']) ?><?= $filterJenis ? ' - ' . e($filterJenis) : '' ?></p></div>
     <div class="text-end"><span class="dc-section-badge">PENDAPATAN</span><h3 class="mb-0"><?= rupiah($report['total_pendapatan']) ?></h3></div>
   </div>
   <div class="table-responsive"><table class="table dc-table align-middle"><thead><tr><th>Tanggal</th><th>Kode Payment</th><th>Kode Pesanan</th><th>Pelanggan</th><th>Jenis</th><th>Total Pesanan</th><th>Pendapatan</th><th>Status</th></tr></thead><tbody>

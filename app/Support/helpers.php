@@ -157,7 +157,8 @@ function is_admin() {
 function require_login() {
     if (!is_logged_in()) {
         set_flash('warning', 'Silakan login terlebih dahulu. Gunakan demo: budi@email.com / password123.');
-        redirect_to('login');
+        $_SESSION['_open_login_modal'] = true;
+        redirect_to('home');
     }
 }
 

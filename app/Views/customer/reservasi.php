@@ -20,14 +20,17 @@
         <div class="row g-3 mt-2">
           <div class="col-md-6"><label class="dc-form-label">Jumlah Orang</label><input type="number" name="jumlah_orang" id="jumlahOrang" min="1" max="20" value="2" class="form-control dc-input" required></div>
           <div class="col-12">
-            <label class="dc-form-label">Pilih Meja <small class="text-muted fw-normal">(opsional — kosongkan untuk otomatis)</small></label>
+            <label class="dc-form-label">Pilih Meja</label>
             <input type="hidden" name="no_meja" id="reservasiMeja" value="">
             <div class="dc-table-grid mt-2">
               <?php foreach ($tables as $t): ?>
-                <button type="button" class="dc-table-seat <?= e($t['status']) ?>" data-table="<?= e($t['no_meja']) ?>" <?= $t['status'] !== 'tersedia' ? 'disabled' : '' ?>>
+                <?php $available = $t['available'] ?? ($t['status'] === 'tersedia'); ?>
+                <button type="button" class="dc-table-seat <?= $available ? 'tersedia' : 'terisi' ?>"
+                  data-table="<?= e($t['no_meja']) ?>"
+                  <?= !$available ? 'disabled' : '' ?>>
                   <strong><?= e($t['no_meja']) ?></strong>
                   <span><?= e($t['kapasitas']) ?> org</span>
-                  <small><?= e(ucfirst($t['status'])) ?></small>
+                  <small><?= $available ? 'Tersedia' : 'Terisi' ?></small>
                 </button>
               <?php endforeach; ?>
             </div>
@@ -41,3 +44,43 @@
     <div class="col-lg-4"><div class="dc-summary-card sticky-lg-top"><h5>Ringkasan Reservasi</h5><ul><li><i class="fa-regular fa-calendar"></i> <span id="summaryDate"><?= date('d M Y') ?></span></li><li><i class="fa-regular fa-clock"></i> <span id="summaryTime">19:00</span></li><li><i class="fa-solid fa-user-group"></i> <span id="summaryPeople">2 orang</span></li><li><i class="fa-solid fa-chair"></i> <span id="summaryMeja">Meja terbaik tersedia</span></li></ul><hr><div class="d-flex justify-content-between"><span>Biaya Booking</span><strong>Rp 15.000</strong></div><small class="text-muted d-block mt-2">*Deposit 50% dari total pesanan pre-order dibayar saat pesan menu. Sisa dilunasi saat kedatangan.</small></div></div>
   </form>
 </div></section>
+
+<script>
+async function updateTableAvailability() {
+  const tanggal = document.getElementById('tanggalReservasi').value;
+  const jam     = document.getElementById('jamReservasi').value;
+  if (!tanggal || !jam) return;
+
+  try {
+    const res    = await fetch(`<?= url('api/meja-availability') ?>?tanggal=${tanggal}&jam=${encodeURIComponent(jam)}`);
+    const tables = await res.json();
+
+    document.querySelectorAll('.dc-table-seat').forEach(btn => {
+      const row = tables.find(t => t.no_meja === btn.dataset.table);
+      if (!row) return;
+
+      const ok = row.available;
+      btn.disabled = !ok;
+      btn.classList.toggle('tersedia', ok);
+      btn.classList.toggle('terisi', !ok);
+      btn.querySelector('small').textContent = ok ? 'Tersedia' : 'Terisi';
+
+      if (!ok && btn.classList.contains('selected')) {
+        btn.classList.remove('selected');
+        document.getElementById('reservasiMeja').value = '';
+        document.getElementById('summaryMeja').textContent = 'Meja terbaik tersedia';
+      }
+    });
+  } catch (e) {
+    console.error('Gagal update ketersediaan meja', e);
+  }
+}
+
+document.getElementById('tanggalReservasi').addEventListener('change', updateTableAvailability);
+
+document.querySelectorAll('.dc-time-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    setTimeout(updateTableAvailability, 50);
+  });
+});
+</script>

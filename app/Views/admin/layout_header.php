@@ -17,5 +17,4 @@
 </aside>
 <div class="dc-admin-content">
   <?php $adminTitles = ['admin/dashboard' => 'Dashboard', 'admin/menu' => 'Kelola Menu', 'admin/meja' => 'Kelola Meja', 'admin/reservasi' => 'Kelola Reservasi', 'admin/pesanan' => 'Daftar Pesanan', 'admin/payment' => 'Verifikasi Payment', 'admin/laporan' => 'Laporan Penjualan', 'admin/profile' => 'Profil Admin']; $topTitle = isset($admin_title) ? $admin_title : (isset($adminTitles[$current_admin_page]) ? $adminTitles[$current_admin_page] : 'Dashboard'); ?>
-  <header class="dc-admin-topbar"><div><span>Panel Admin</span><h1><?= e($topTitle) ?></h1></div><a href="<?= url('home') ?>" class="btn dc-btn-ghost"><i class="fa-solid fa-globe"></i> Lihat Website</a></header>
-  <?php require __DIR__ . '/../partials/flash.php'; ?>
+  <header class="dc-admin-topbar"><div><span>Panel Admin</span><h1><?= e($topTitle) ?></h1></div></header>

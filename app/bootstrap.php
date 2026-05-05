@@ -7,6 +7,7 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 init_demo_state();
+auto_expire_past_reservations(); // FIX: expire reservasi masa lalu otomatis tiap request
 
 $route = request_route();
 $method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
@@ -66,43 +67,28 @@ function handle_post($route)
         $result = create_reservation($_POST);
         flash_result($result);
         if (!empty($result['ok'])) {
-            $resId = (int)$result['id'];
-            $payId = isset($result['payment_id']) ? (int)$result['payment_id'] : 0;
-            if ($payId > 0) {
-                redirect_to('payment?res_id=' . $resId);
-            } else {
-                redirect_to('riwayat');
-            }
+            redirect_to('reservasi/payment?id=' . (int)$result['id']);
         }
         redirect_to('reservasi');
     }
 
-    if ($route === 'payment_reservasi/upload') {
+    if ($route === 'reservasi/payment/upload') {
         require_login();
-        $resId = (int)(isset($_POST['res_id']) ? $_POST['res_id'] : 0);
-        $payment = find_payment_by_reservasi($resId);
-        if (!$payment) {
-            set_flash('danger', 'Payment reservasi tidak ditemukan.');
-            redirect_to('riwayat');
-        }
-        list($filePath, $uploadError) = save_uploaded_file('bukti_tf', 'uploads/payments', ['jpg', 'jpeg', 'png', 'webp', 'pdf'], 2 * 1024 * 1024);
-        if ($uploadError) {
-            set_flash('danger', $uploadError);
-            redirect_to('payment?res_id=' . $resId);
-        }
-        if (!$filePath) {
-            set_flash('danger', 'Pilih file bukti transfer.');
-            redirect_to('payment?res_id=' . $resId);
-        }
+        $reservasiId = (int)(isset($_POST['reservasi_id']) ? $_POST['reservasi_id'] : 0);
+        $result = upload_booking_receipt($reservasiId);
+        flash_result($result);
+        redirect_to('reservasi/payment?id=' . $reservasiId);
+    }
 
-        $pdo = db();
-        $old = db_one('SELECT bukti_tf FROM payment WHERE id_payment = ? LIMIT 1', [$payment['id']]);
-        if ($old && !empty($old['bukti_tf'])) {
-            delete_uploaded_file_if_local($old['bukti_tf']);
-        }
-        db_exec("UPDATE payment SET bukti_tf = ?, status_payment = 'pending', tanggal_upload = NOW() WHERE id_payment = ?", [$filePath, $payment['id']]);
-        set_flash('success', 'Bukti pembayaran reservasi berhasil diunggah. Admin akan verifikasi.');
-        redirect_to('riwayat');
+    if ($route === 'admin/booking-payment/verify') {
+        require_admin();
+        $result = verify_booking_payment(
+            isset($_POST['id']) ? $_POST['id'] : 0,
+            isset($_POST['status']) ? $_POST['status'] : 'verified',
+            isset($_POST['catatan_admin']) ? $_POST['catatan_admin'] : ''
+        );
+        flash_result($result);
+        redirect_to('admin/payment');
     }
 
     if ($route === 'pesan/store') {
@@ -165,13 +151,6 @@ function handle_post($route)
         redirect_to('admin/pesanan');
     }
 
-    if ($route === 'admin/payment_reservasi/verify') {
-        require_admin();
-        $result = verify_payment(isset($_POST['id']) ? $_POST['id'] : 0, isset($_POST['status']) ? $_POST['status'] : 'verified', isset($_POST['catatan_admin']) ? $_POST['catatan_admin'] : '');
-        flash_result($result);
-        redirect_to('admin/payment');
-    }
-
     if ($route === 'admin/payment/verify') {
         require_admin();
         $result = verify_payment(isset($_POST['id']) ? $_POST['id'] : 0, isset($_POST['status']) ? $_POST['status'] : 'verified', isset($_POST['catatan_admin']) ? $_POST['catatan_admin'] : '');
@@ -187,6 +166,15 @@ if ($method === 'POST') {
     handle_post($route);
 }
 
+// AJAX endpoint: ketersediaan meja berdasarkan tanggal & jam
+if ($route === 'api/meja-availability') {
+    header('Content-Type: application/json');
+    $tanggal = isset($_GET['tanggal']) ? $_GET['tanggal'] : date('Y-m-d');
+    $jam     = isset($_GET['jam'])     ? $_GET['jam']     : '19:00';
+    echo json_encode(get_tables_with_availability($tanggal, $jam));
+    exit;
+}
+
 switch ($route) {
     case 'home':
     case '':
@@ -196,10 +184,15 @@ switch ($route) {
         render('customer/menu', ['current_page' => 'menu', 'menus' => get_menus()]);
         break;
     case 'reservasi':
-        render('customer/reservasi', ['current_page' => 'reservasi', 'tables' => get_tables()]);
+        require_login();
+        render('customer/reservasi', [
+            'current_page' => 'reservasi',
+            'tables' => get_tables_with_availability(date('Y-m-d'), '19:00'),
+        ]);
         break;
     case 'pesan':
-        render('customer/pesan', ['current_page' => 'pesan', 'menus' => get_menus(), 'tables' => get_tables(), 'reservations' => get_reservations(false)]);
+        require_login();
+        render('customer/pesan', ['current_page' => 'pesan', 'menus' => get_menus(), 'tables' => get_tables(), 'reservations' => get_reservations(false), 'orders' => get_orders(false)]);
         break;
     case 'riwayat':
         require_login();
@@ -208,14 +201,16 @@ switch ($route) {
     case 'payment':
         require_login();
         $orderId = (int)(isset($_GET['order_id']) ? $_GET['order_id'] : 0);
-        $resId = (int)(isset($_GET['res_id']) ? $_GET['res_id'] : 0);
-        if ($resId > 0) {
-            $payment = find_payment_by_reservasi($resId);
-            $reservation = find_reservation($resId, false);
-            render('customer/payment-reservasi', ['current_page' => 'payment', 'payment' => $payment, 'reservation' => $reservation]);
-        } else {
-            render('customer/payment', ['current_page' => 'payment', 'order' => find_order($orderId), 'payment' => find_payment_by_order($orderId)]);
-        }
+        render('customer/payment', ['current_page' => 'payment', 'order' => find_order($orderId), 'payment' => find_payment_by_order($orderId)]);
+        break;
+    case 'reservasi/payment':
+        require_login();
+        $rsvId = (int)(isset($_GET['id']) ? $_GET['id'] : 0);
+        render('customer/reservasi_payment', [
+            'current_page' => 'reservasi',
+            'reservation' => find_reservation($rsvId, false),
+            'booking_payment' => find_payment_by_reservation($rsvId),
+        ]);
         break;
     case 'profile':
         require_login();
@@ -254,11 +249,11 @@ switch ($route) {
         render_admin('admin/pesanan', ['current_admin_page' => 'admin/pesanan', 'orders' => get_orders(true)]);
         break;
     case 'admin/payment':
-        render_admin('admin/payment', ['current_admin_page' => 'admin/payment', 'payments' => get_payments(true)]);
+        render_admin('admin/payment', ['current_admin_page' => 'admin/payment', 'payments' => get_all_payments_for_admin()]);
         break;
     case 'admin/laporan':
         $start = isset($_GET['start']) ? $_GET['start'] : date('Y-m-01');
-        $end = isset($_GET['end']) ? $_GET['end'] : date('Y-m-d');
+        $end   = isset($_GET['end'])   ? $_GET['end']   : date('Y-m-d');
         $jenis = isset($_GET['jenis']) ? $_GET['jenis'] : '';
         render_admin('admin/laporan', ['current_admin_page' => 'admin/laporan', 'report' => sales_report($start, $end, $jenis)]);
         break;
