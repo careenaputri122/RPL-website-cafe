@@ -1,9 +1,11 @@
+<link href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+
 <section class="dc-hero">
   <div class="dc-hero-overlay"></div>
   <div class="container h-100 d-flex flex-column justify-content-center">
     <div class="dc-hero-content text-center">
       <span class="dc-open-badge"><i class="fa-solid fa-clock"></i> Buka Setiap Hari 09.00 - 22.00 WIB</span>
-      <h1 class="dc-hero-title">Cita Rasa Nusantara<br><em>dalam Setiap Sajian</em></h1>
+      <h1 class="dc-hero-title" style="font-family: 'Poppins', sans-serif; font-size: 4rem;">Cita Rasa Nusantara<br><em>dalam Setiap Sajian</em></h1>
       <p class="dc-hero-desc">Nikmati pengalaman kuliner autentik Indonesia dengan suasana modern yang hangat. Reservasi meja, pesan menu favorit, dan bayar dengan mudah.</p>
       <div class="d-flex justify-content-center gap-3 flex-wrap">
         <a href="<?= url('reservasi') ?>" class="btn dc-btn-hero-primary">Reservasi Sekarang <i class="fa-solid fa-arrow-right ms-1"></i></a>

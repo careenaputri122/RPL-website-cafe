@@ -68,7 +68,7 @@
     <form method="POST" action="<?= url('login') ?>"><?= csrf_field() ?>
       <div class="mb-3"><label class="dc-form-label">Email</label><input type="email" name="email" class="form-control dc-input" placeholder="email@contoh.com" required></div>
       <div class="mb-3"><label class="dc-form-label">Password</label><input type="password" name="password" class="form-control dc-input" placeholder="Minimal 6 karakter" required></div>
-      <p class="dc-demo-hint">Demo pelanggan: budi@email.com / password123<br>Demo admin: admin@cafe.com / admin123</p>
+      
       <button type="submit" class="btn dc-btn-submit w-100">Masuk</button>
     </form>
     <p class="dc-modal-switch">Belum punya akun? <a href="#" data-bs-dismiss="modal" data-bs-toggle="modal" data-bs-target="#registerModal">Daftar sekarang</a></p>

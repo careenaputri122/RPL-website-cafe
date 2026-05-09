@@ -24,10 +24,13 @@
             <input type="hidden" name="no_meja" id="reservasiMeja" value="<?= e(old('no_meja', '')) ?>">
             <div class="dc-table-grid mt-2">
               <?php $oldMeja = old('no_meja', ''); foreach ($tables as $t): ?>
-                <button type="button" class="dc-table-seat <?= e($t['status']) ?> <?= $t['no_meja'] === $oldMeja ? 'selected-table' : '' ?>" data-table="<?= e($t['no_meja']) ?>" <?= $t['status'] !== 'tersedia' && $t['no_meja'] !== $oldMeja ? 'disabled' : '' ?>>
+                <?php $available = $t['available'] ?? ($t['status'] === 'tersedia'); ?>
+                <button type="button" class="dc-table-seat <?= $available ? 'tersedia' : 'terisi' ?> <?= $t['no_meja'] === $oldMeja ? 'selected' : '' ?>" 
+                  data-table="<?= e($t['no_meja']) ?>" 
+                  <?= !$available && $t['no_meja'] !== $oldMeja ? 'disabled' : '' ?>>
                   <strong><?= e($t['no_meja']) ?></strong>
                   <span><?= e($t['kapasitas']) ?> org</span>
-                  <small><?= e(ucfirst($t['status'])) ?></small>
+                  <small><?= $available ? 'Tersedia' : 'Terisi' ?></small>
                 </button>
               <?php endforeach; ?>
             </div>
@@ -203,5 +206,44 @@ document.addEventListener('DOMContentLoaded', function() {
       updateSummary();
     }
   } catch(e) {}
+
+  // 3. Table Availability Logic
+  async function updateTableAvailability() {
+    const tanggal = document.getElementById('tanggalReservasi').value;
+    const jam     = document.getElementById('jamReservasi').value;
+    if (!tanggal || !jam) return;
+
+    try {
+      const res    = await fetch(`<?= url('api/meja-availability') ?>?tanggal=${tanggal}&jam=${encodeURIComponent(jam)}`);
+      const tables = await res.json();
+
+      document.querySelectorAll('.dc-table-seat').forEach(btn => {
+        const row = tables.find(t => t.no_meja === btn.dataset.table);
+        if (!row) return;
+
+        const ok = row.available;
+        btn.disabled = !ok;
+        btn.classList.toggle('tersedia', ok);
+        btn.classList.toggle('terisi', !ok);
+        btn.querySelector('small').textContent = ok ? 'Tersedia' : 'Terisi';
+
+        if (!ok && btn.classList.contains('selected')) {
+          btn.classList.remove('selected');
+          document.getElementById('reservasiMeja').value = '';
+          document.getElementById('summaryMeja').textContent = 'Meja terbaik tersedia';
+        }
+      });
+    } catch (e) {
+      console.error('Gagal update ketersediaan meja', e);
+    }
+  }
+
+  document.getElementById('tanggalReservasi').addEventListener('change', updateTableAvailability);
+
+  document.querySelectorAll('.dc-time-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setTimeout(updateTableAvailability, 50);
+    });
+  });
 });
 </script>

@@ -27,10 +27,23 @@ $selectedReservation = isset($_GET['reservasi_id']) ? (int)$_GET['reservasi_id']
         <div><h5 class="mb-1">Pilih Reservasi untuk Pre-Order</h5><p class="text-muted mb-0">Menu yang dipilih akan ditautkan ke reservasi pelanggan.</p></div>
         <a href="<?= url('reservasi') ?>" class="btn dc-btn-ghost"><i class="fa-solid fa-calendar-plus"></i> Buat Reservasi</a>
       </div>
-      <?php 
-        $validReservations = array_values(array_filter($reservations, function ($r) { return isset($r['status']) && $r['status'] !== 'cancelled'; })); 
-        $selectedReservation = old('reservation_id', $selectedReservation);
-      ?>
+      <?php
+$reservasiSudahPesan = [];
+foreach ($reservations as $r) {
+    foreach ($orders as $o) {
+        if ((int)(isset($o['reservation_id']) ? $o['reservation_id'] : 0) === (int)$r['id']
+            && !in_array($o['status'], ['dibatalkan'], true)) {
+            $reservasiSudahPesan[] = (int)$r['id'];
+            break;
+        }
+    }
+}
+$validReservations = array_values(array_filter($reservations, function ($r) use ($reservasiSudahPesan) {
+    return isset($r['status']) && $r['status'] === 'confirmed'
+        && !in_array((int)$r['id'], $reservasiSudahPesan, true);
+}));
+$selectedReservation = old('reservation_id', $selectedReservation);
+?>
       <?php if (count($validReservations)): ?>
         <select name="reservation_id" class="form-select dc-input mt-3">
           <option value="">Pilih reservasi...</option>
@@ -39,7 +52,7 @@ $selectedReservation = isset($_GET['reservasi_id']) ? (int)$_GET['reservasi_id']
           <?php endforeach; ?>
         </select>
       <?php else: ?>
-        <div class="alert alert-warning mt-3 mb-0">Belum ada reservasi aktif. Buat reservasi dulu, lalu kembali ke halaman Pesan.</div>
+        <div class="alert alert-warning mt-3 mb-0">Belum ada reservasi yang sudah dikonfirmasi. Buat reservasi dulu dan tunggu konfirmasi admin, lalu kembali ke halaman Pesan.</div>
       <?php endif; ?>
     </div>
 

@@ -22,9 +22,22 @@
     <div class="collapse navbar-collapse" id="navMenu">
       <ul class="navbar-nav mx-auto gap-lg-2">
         <?php $navs = ['home' => 'Home', 'menu' => 'Menu', 'reservasi' => 'Reservasi', 'pesan' => 'Pesan']; ?>
-        <?php foreach ($navs as $key => $label): ?>
-          <li class="nav-item"><a class="nav-link dc-nav-link <?= $current_page === $key ? 'active' : '' ?>" href="<?= url($key) ?>"><?= e($label) ?></a></li>
-        <?php endforeach; ?>
+        <?php $login_required = ['reservasi', 'pesan']; ?>
+<?php foreach ($navs as $key => $label): ?>
+  <li class="nav-item">
+    <?php if (!is_logged_in() && in_array($key, $login_required)): ?>
+      <a class="nav-link dc-nav-link <?= $current_page === $key ? 'active' : '' ?>"
+         href="#" data-bs-toggle="modal" data-bs-target="#loginModal">
+        <?= e($label) ?>
+      </a>
+    <?php else: ?>
+      <a class="nav-link dc-nav-link <?= $current_page === $key ? 'active' : '' ?>"
+         href="<?= url($key) ?>">
+        <?= e($label) ?>
+      </a>
+    <?php endif; ?>
+  </li>
+<?php endforeach; ?>
       </ul>
       <div class="d-flex align-items-center gap-2 dc-nav-actions">
         <?php if (is_logged_in()): ?>
@@ -74,4 +87,13 @@
     </div>
   </div>
   <?php endif; ?>
+<?php endif; ?>
+
+<?php if (!empty($_SESSION['_open_login_modal'])): ?>
+  <?php unset($_SESSION['_open_login_modal']); ?>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      new bootstrap.Modal(document.getElementById('loginModal')).show();
+    });
+  </script>
 <?php endif; ?>

@@ -17,7 +17,7 @@
         <td><span class="dc-status <?= e($p['status']) ?>"><?= e($p['status']) ?></span></td>
         <td><?= e($p['catatan_admin']) ?></td>
         <td>
-          <form method="POST" action="<?= url('admin/payment/verify') ?>" class="dc-verify-form"><?= csrf_field() ?>
+         <form method="POST" action="<?= url($p['tipe'] === 'booking' ? 'admin/booking-payment/verify' : 'admin/payment/verify') ?>" class="dc-verify-form">  <?= csrf_field() ?> 
             <input type="hidden" name="id" value="<?= e($p['id']) ?>">
             <input name="catatan_admin" class="form-control form-control-sm mb-2" placeholder="Catatan admin" value="<?= e($p['catatan_admin']) ?>">
             <div class="d-flex gap-1">

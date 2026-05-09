@@ -11,7 +11,13 @@
     <div class="col-sm-6 col-lg-4 col-xl-3 menu-filter-item" data-name="<?= e(strtolower($item['nama'])) ?>" data-category="<?= e($item['kategori']) ?>">
       <div class="dc-product-card <?= !$available ? 'is-empty' : '' ?>">
         <div class="dc-product-img"><img src="<?= e($item['foto']) ?>" alt="<?= e($item['nama']) ?>"><span class="dc-stock-badge <?= $available ? 'ok' : 'empty' ?>"><?= $available ? 'Tersedia' : 'Habis' ?></span></div>
-        <div class="dc-product-body"><span class="dc-product-cat"><?= e($item['kategori']) ?></span><h5><?= e($item['nama']) ?></h5><p><?= e($item['deskripsi']) ?></p><div class="d-flex justify-content-between align-items-center"><strong><?= rupiah($item['harga']) ?></strong><a class="dc-add-mini <?= !$available ? 'disabled' : '' ?>" href="<?= url('pesan') ?>"><i class="fa-solid fa-plus"></i></a></div></div>
+        <div class="dc-product-body"><span class="dc-product-cat"><?= e($item['kategori']) ?></span><h5><?= e($item['nama']) ?></h5><p><?= e($item['deskripsi']) ?></p><div class="d-flex justify-content-between align-items-center"><strong><?= rupiah($item['harga']) ?></strong>
+          <a class="dc-add-mini <?= !$available ? 'disabled' : '' ?>"
+   href="<?= is_logged_in() ? url('pesan') : '#' ?>"
+   <?= !is_logged_in() ? 'data-bs-toggle="modal" data-bs-target="#loginModal"' : '' ?>>
+  <i class="fa-solid fa-plus"></i>
+</a>
+        </div></div>
       </div>
     </div>
     <?php endforeach; ?>
