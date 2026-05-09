@@ -69,7 +69,7 @@ function handle_post($route)
         if (!empty($result['ok'])) {
             redirect_to('reservasi/payment?id=' . (int)$result['id']);
         }
-        redirect_to('reservasi');
+        redirect_back('reservasi');
     }
 
     if ($route === 'reservasi/payment/upload') {
@@ -107,6 +107,45 @@ function handle_post($route)
         $result = upload_payment_receipt($orderId);
         flash_result($result);
         redirect_to(!empty($result['ok']) ? 'riwayat' : 'payment?order_id=' . $orderId);
+    }
+
+    if ($route === 'payment/bulk/upload') {
+        require_login();
+        $user = current_user();
+        $unpaid = get_unpaid_payments_by_user($user['id']);
+        if (empty($unpaid)) {
+            set_flash('warning', 'Tidak ada tagihan tertunda.');
+            redirect_to('riwayat');
+        }
+
+        list($filePath, $uploadError) = save_uploaded_file('bukti_tf', 'uploads/payments', ['jpg', 'jpeg', 'png', 'webp', 'pdf'], 2 * 1024 * 1024);
+        if ($uploadError) {
+            set_flash('danger', $uploadError);
+            redirect_to('riwayat');
+        }
+        if (!$filePath) {
+            set_flash('danger', 'Pilih file bukti transfer.');
+            redirect_to('riwayat');
+        }
+
+        if (using_database()) {
+            foreach ($unpaid as $p) {
+                db_exec("UPDATE payment SET bukti_tf = ?, status_payment = 'pending', tanggal_upload = NOW() WHERE id_payment = ?", [$filePath, $p['id']]);
+            }
+        } else {
+            foreach ($unpaid as $p) {
+                foreach ($_SESSION['payments'] as $idx => $sp) {
+                    if ((int)$sp['id'] === (int)$p['id']) {
+                        $_SESSION['payments'][$idx]['bukti_tf'] = $filePath;
+                        $_SESSION['payments'][$idx]['bukti_url'] = asset($filePath);
+                        $_SESSION['payments'][$idx]['status'] = 'pending';
+                        $_SESSION['payments'][$idx]['tanggal_upload'] = date('Y-m-d H:i:s');
+                    }
+                }
+            }
+        }
+        set_flash('success', 'Berhasil! Satu bukti transfer telah diterapkan untuk ' . count($unpaid) . ' tagihan Anda.');
+        redirect_to('riwayat');
     }
 
     if ($route === 'admin/menu/save') {
@@ -188,6 +227,7 @@ switch ($route) {
         render('customer/reservasi', [
             'current_page' => 'reservasi',
             'tables' => get_tables_with_availability(date('Y-m-d'), '19:00'),
+            'menus' => get_menus()
         ]);
         break;
     case 'pesan':
@@ -211,6 +251,11 @@ switch ($route) {
             'reservation' => find_reservation($rsvId, false),
             'booking_payment' => find_payment_by_reservation($rsvId),
         ]);
+        break;
+    case 'payment/bulk':
+        require_login();
+        $user = current_user();
+        render('customer/payment-bulk', ['current_page' => 'payment', 'unpaidPayments' => get_unpaid_payments_by_user($user['id'])]);
         break;
     case 'profile':
         require_login();

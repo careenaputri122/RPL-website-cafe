@@ -610,6 +610,24 @@ function find_payment_by_order($orderId)
     return null;
 }
 
+function find_payment_by_reservasi($resId)
+{
+    foreach (get_payments(is_admin()) as $payment) {
+        if ((int)$payment['reservation_id'] === (int)$resId) {
+            return $payment;
+        }
+    }
+    return null;
+}
+
+function get_unpaid_payments_by_user($userId)
+{
+    $allPayments = get_payments(false); // get current customer payments
+    return array_values(array_filter($allPayments, function ($p) {
+        return $p['status'] === 'pending' && !payment_has_receipt($p);
+    }));
+}
+
 function find_reservation($id, $all = true)
 {
     foreach (get_reservations($all) as $reservation) {
@@ -960,6 +978,7 @@ function create_reservation($data)
     $jumlah = max(1, (int)(isset($data['jumlah_orang']) ? $data['jumlah_orang'] : 1));
     $noMeja = trim(isset($data['no_meja']) ? $data['no_meja'] : '');
     $catatan = trim(isset($data['catatan']) ? $data['catatan'] : '');
+    $cartItems = parse_cart_items(isset($data['cart_data']) ? $data['cart_data'] : '[]');
 
     if (!$tanggal || strtotime($tanggal) < strtotime(date('Y-m-d'))) {
         return ['ok' => false, 'message' => 'Tanggal reservasi tidak boleh sebelum hari ini.'];
@@ -967,6 +986,8 @@ function create_reservation($data)
     if ($jumlah > 20) {
         return ['ok' => false, 'message' => 'Jumlah orang maksimal 20 untuk satu reservasi.'];
     }
+
+    $bookingFee = 15000;
 
     if (using_database()) {
         $pdo = db();
@@ -1004,46 +1025,105 @@ function create_reservation($data)
         $pdo->beginTransaction();
         try {
             $stmt = $pdo->prepare('INSERT INTO reservasi (id_pelanggan, id_meja, nama_tamu, tanggal, jam, jumlah_orang, status_reservasi, biaya_booking, catatan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
-            $stmt->execute([(int)$user['id'], (int)$table['id_meja'], $user['name'], $tanggal, $time, $jumlah, 'pending', 15000, $catatan]);
-            $id = (int)$pdo->lastInsertId();
-            $pdo->prepare('INSERT INTO payment (id_pesanan, id_reservasi, tipe, jumlah, status_payment) VALUES (NULL, ?, ?, ?, ?)')->execute([(int)$id, 'booking', 15000, 'pending']);
+            $stmt->execute([(int)$user['id'], (int)$table['id_meja'], $user['name'], $tanggal, $time, $jumlah, 'pending', $bookingFee, $catatan]);
+            $resId = (int)$pdo->lastInsertId();
+            
+            $totalPayment = $bookingFee;
+            $orderId = null;
+
+            if (!empty($cartItems)) {
+                $idJenisRow = db_one('SELECT id_jenis_pesanan FROM jenis_pesanan WHERE nama_pesanan = ? LIMIT 1', ['reservasi']);
+                $idJenis = (int)$idJenisRow['id_jenis_pesanan'];
+                
+                $orderTotal = 0;
+                $processedItems = [];
+                foreach ($cartItems as $menuId => $qty) {
+                    $mStmt = $pdo->prepare('SELECT m.id_menu, m.nama_menu, m.harga, s.jumlah_stok FROM menu m JOIN stok_menu s ON s.id_menu = m.id_menu WHERE m.id_menu = ? FOR UPDATE');
+                    $mStmt->execute([(int)$menuId]);
+                    $menu = $mStmt->fetch();
+                    if (!$menu) throw new Exception('Menu tidak ditemukan.');
+                    if ((int)$menu['jumlah_stok'] < $qty) throw new Exception('Stok ' . $menu['nama_menu'] . ' tidak mencukupi.');
+                    
+                    $subtotal = (float)$menu['harga'] * $qty;
+                    $orderTotal += $subtotal;
+                    $processedItems[] = ['id' => $menu['id_menu'], 'qty' => $qty, 'price' => (float)$menu['harga'], 'subtotal' => $subtotal];
+                }
+                
+                $orderDeposit = ceil($orderTotal * 0.5);
+                $stmt = $pdo->prepare('INSERT INTO pesanan (id_pelanggan, id_reservasi, id_meja, id_jenis_pesanan, total_harga, deposit, status_pesanan) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                $stmt->execute([(int)$user['id'], $resId, (int)$table['id_meja'], $idJenis, $orderTotal, $orderDeposit, 'pending']);
+                $orderId = (int)$pdo->lastInsertId();
+
+                $detailStmt = $pdo->prepare('INSERT INTO detail_pesanan (id_pesanan, id_menu, jumlah, harga_satuan, subtotal) VALUES (?, ?, ?, ?, ?)');
+                $stockStmt = $pdo->prepare('UPDATE stok_menu SET jumlah_stok = jumlah_stok - ? WHERE id_menu = ?');
+                foreach ($processedItems as $it) {
+                    $detailStmt->execute([$orderId, $it['id'], $it['qty'], $it['price'], $it['subtotal']]);
+                    $stockStmt->execute([$it['qty'], $it['id']]);
+                }
+                $totalPayment += $orderDeposit;
+            }
+
+            // Combined payment (tipe=booking)
+            $payStmt = $pdo->prepare('INSERT INTO payment (id_reservasi, id_pesanan, tipe, jumlah, status_payment) VALUES (?, ?, ?, ?, ?)');
+            $payStmt->execute([$resId, $orderId, 'booking', $totalPayment, 'pending']);
+            
             $pdo->commit();
-            return ['ok' => true, 'id' => $id, 'kode' => 'RSV-' . str_pad((string)(1000 + $id), 4, '0', STR_PAD_LEFT), 'message' => 'Reservasi berhasil dibuat! Selesaikan pembayaran booking fee untuk konfirmasi.'];
+            $msg = $orderId ? 'Reservasi & Pre-order berhasil dibuat.' : 'Reservasi berhasil dibuat.';
+            return ['ok' => true, 'id' => $resId, 'kode' => 'RSV-' . str_pad((string)(1000 + $resId), 4, '0', STR_PAD_LEFT), 'message' => $msg . ' Silakan lakukan pembayaran total ' . rupiah($totalPayment)];
         } catch (Throwable $e) {
             $pdo->rollBack();
-            return ['ok' => false, 'message' => 'Reservasi gagal disimpan: ' . $e->getMessage()];
+            return ['ok' => false, 'message' => 'Gagal menyimpan: ' . $e->getMessage()];
         }
     }
 
     // ---- SESSION / DEMO fallback ----
     $available = array_values(array_filter(get_tables(), function ($t) use ($jumlah, $noMeja) {
-        if ($t['status'] !== 'tersedia') {
-            return false;
-        }
-        if ($noMeja !== '') {
-            return $t['no_meja'] === $noMeja;
-        }
-        return (int)$t['kapasitas'] >= $jumlah;
+        if ($t['status'] !== 'tersedia') return false;
+        return ($noMeja !== '') ? ($t['no_meja'] === $noMeja) : ((int)$t['kapasitas'] >= $jumlah);
     }));
-    if (!count($available)) {
-        return ['ok' => false, 'message' => 'Meja yang sesuai belum tersedia.'];
-    }
+    if (!count($available)) return ['ok' => false, 'message' => 'Meja tidak tersedia.'];
     $table = $available[0];
-    $id = next_id($_SESSION['reservations']);
+
+    $resId = next_id($_SESSION['reservations']);
     $_SESSION['reservations'][] = [
-        'id' => $id,
-        'kode' => 'RSV-' . str_pad((string)(1000 + $id), 4, '0', STR_PAD_LEFT),
-        'nama' => $user['name'],
-        'email' => $user['email'],
-        'tanggal' => $tanggal,
-        'jam' => $jam,
-        'jumlah_orang' => $jumlah,
-        'no_meja' => $table['no_meja'],
-        'catatan' => $catatan,
-        'status' => 'pending',
-        'created_at' => date('Y-m-d H:i:s'),
+        'id' => $resId, 'kode' => 'RSV-' . (1000 + $resId), 'nama' => $user['name'], 'email' => $user['email'], 
+        'tanggal' => $tanggal, 'jam' => $jam, 'jumlah_orang' => $jumlah, 'no_meja' => $table['no_meja'], 
+        'catatan' => $catatan, 'status' => 'pending', 'created_at' => date('Y-m-d H:i:s'), 'biaya_booking' => $bookingFee
     ];
-    return ['ok' => true, 'id' => $id, 'kode' => 'RSV-' . str_pad((string)(1000 + $id), 4, '0', STR_PAD_LEFT), 'message' => 'Reservasi berhasil dibuat! Selesaikan pembayaran booking fee untuk konfirmasi.'];
+
+    $totalPayment = $bookingFee;
+    $orderId = null;
+    if (!empty($cartItems)) {
+        $orderTotal = 0;
+        $processedItems = [];
+        foreach ($cartItems as $menuId => $qty) {
+            $menu = find_menu($menuId);
+            if (!$menu || (int)$menu['stok'] < $qty) return ['ok' => false, 'message' => 'Stok menu tidak cukup.'];
+            $sub = (float)$menu['harga'] * $qty;
+            $orderTotal += $sub;
+            $processedItems[] = ['id' => $menu['id'], 'nama' => $menu['nama'], 'harga' => $menu['harga'], 'qty' => $qty];
+            // Deduct session stock
+            foreach ($_SESSION['menus'] as $idx => $m) {
+                if ((int)$m['id'] === (int)$menuId) $_SESSION['menus'][$idx]['stok'] -= $qty;
+            }
+        }
+        $orderDeposit = ceil($orderTotal * 0.5);
+        $orderId = next_id($_SESSION['orders']);
+        $_SESSION['orders'][] = [
+            'id' => $orderId, 'kode' => 'ORD-' . (1000 + $orderId), 'reservation_id' => $resId, 'nama' => $user['name'],
+            'email' => $user['email'], 'jenis' => 'reservasi', 'no_meja' => $table['no_meja'], 'items' => $processedItems,
+            'total' => $orderTotal, 'deposit' => $orderDeposit, 'status' => 'pending', 'created_at' => date('Y-m-d H:i:s')
+        ];
+        $totalPayment += $orderDeposit;
+    }
+
+    $payId = next_id($_SESSION['payments']);
+    $_SESSION['payments'][] = [
+        'id' => $payId, 'order_id' => $orderId, 'reservation_id' => $resId, 'kode' => 'PAY-' . (1000 + $payId), 
+        'nama' => $user['name'], 'tipe' => 'booking', 'total' => $totalPayment, 'bukti_tf' => 'Belum ada file', 'status' => 'pending'
+    ];
+
+    return ['ok' => true, 'id' => $resId, 'payment_id' => $payId, 'message' => 'Berhasil dibuat. Silakan bayar ' . rupiah($totalPayment)];
 }
 
 function parse_cart_items($cartJson)

@@ -6,7 +6,10 @@ $selectedReservation = isset($_GET['reservasi_id']) ? (int)$_GET['reservasi_id']
 <section class="dc-page-hero small"><div class="container"><span class="dc-section-badge">ORDER</span><h1>Pesan Menu</h1><p>Pilih layanan dine-in, take away, atau pre-order saat reservasi.</p></div></section>
 <section class="py-5"><div class="container">
   <form method="POST" action="<?= url('pesan/store') ?>" id="orderForm"><?= csrf_field() ?>
-    <input type="hidden" name="jenis" id="orderJenis" value="<?= e($jenisAktif) ?>"><input type="hidden" name="no_meja" id="orderTable" value=""><input type="hidden" name="cart_data" id="cartData" value="[]">
+    <?php $jenisAktif = old('jenis', $jenisAktif); ?>
+    <input type="hidden" name="jenis" id="orderJenis" value="<?= e($jenisAktif) ?>">
+    <input type="hidden" name="no_meja" id="orderTable" value="<?= e(old('no_meja', '')) ?>">
+    <input type="hidden" name="cart_data" id="cartData" value="<?= e(old('cart_data', '[]')) ?>">
     <div class="dc-order-tabs mb-4">
       <button type="button" class="<?= $jenisAktif === 'dine-in' ? 'active' : '' ?>" data-service="dine-in"><i class="fa-solid fa-utensils"></i> Dine-In</button>
       <button type="button" class="<?= $jenisAktif === 'take-away' ? 'active' : '' ?>" data-service="take-away"><i class="fa-solid fa-bag-shopping"></i> Take Away</button>
@@ -14,8 +17,8 @@ $selectedReservation = isset($_GET['reservasi_id']) ? (int)$_GET['reservasi_id']
     </div>
 
     <div class="dc-panel mb-4" id="tablePanel" style="<?= $jenisAktif === 'dine-in' ? '' : 'display:none;' ?>"><h5>Pilih Meja</h5><div class="dc-table-grid">
-      <?php foreach ($tables as $t): ?>
-        <button type="button" class="dc-table-seat <?= e($t['status']) ?>" data-table="<?= e($t['no_meja']) ?>" <?= $t['status'] !== 'tersedia' ? 'disabled' : '' ?>><strong><?= e($t['no_meja']) ?></strong><span><?= e($t['kapasitas']) ?> org</span><small><?= e(ucfirst($t['status'])) ?></small></button>
+      <?php $oldTable = old('no_meja', ''); foreach ($tables as $t): ?>
+        <button type="button" class="dc-table-seat <?= e($t['status']) ?> <?= $t['no_meja'] === $oldTable ? 'selected' : '' ?>" data-table="<?= e($t['no_meja']) ?>" <?= $t['status'] !== 'tersedia' && $t['no_meja'] !== $oldTable ? 'disabled' : '' ?>><strong><?= e($t['no_meja']) ?></strong><span><?= e($t['kapasitas']) ?> org</span><small><?= e(ucfirst($t['status'])) ?></small></button>
       <?php endforeach; ?>
     </div><div class="dc-legend"><span><i class="ok"></i> Tersedia</span><span><i class="bad"></i> Terisi</span></div></div>
 
@@ -39,12 +42,13 @@ $validReservations = array_values(array_filter($reservations, function ($r) use 
     return isset($r['status']) && $r['status'] === 'confirmed'
         && !in_array((int)$r['id'], $reservasiSudahPesan, true);
 }));
+$selectedReservation = old('reservation_id', $selectedReservation);
 ?>
       <?php if (count($validReservations)): ?>
         <select name="reservation_id" class="form-select dc-input mt-3">
           <option value="">Pilih reservasi...</option>
           <?php foreach ($validReservations as $r): ?>
-            <option value="<?= e($r['id']) ?>" <?= (int)$r['id'] === $selectedReservation ? 'selected' : '' ?>><?= e($r['kode']) ?> - <?= e($r['tanggal']) ?> <?= e($r['jam']) ?> - Meja <?= e($r['no_meja']) ?> - <?= e($r['status']) ?></option>
+            <option value="<?= e($r['id']) ?>" <?= (int)$r['id'] === (int)$selectedReservation ? 'selected' : '' ?>><?= e($r['kode']) ?> - <?= e($r['tanggal']) ?> <?= e($r['jam']) ?> - Meja <?= e($r['no_meja']) ?> - <?= e($r['status']) ?></option>
           <?php endforeach; ?>
         </select>
       <?php else: ?>

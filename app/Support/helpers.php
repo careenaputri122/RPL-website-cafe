@@ -74,6 +74,14 @@ function redirect_to($route = '') {
     exit;
 }
 
+function old($key, $default = '') {
+    return isset($_SESSION['old_input'][$key]) ? $_SESSION['old_input'][$key] : $default;
+}
+
+function clear_old_input() {
+    unset($_SESSION['old_input']);
+}
+
 function set_flash($type, $message) {
     $_SESSION['flash'][$type] = $message;
 }
@@ -87,6 +95,13 @@ function get_flash($type) {
     return $message;
 }
 
+function has_flash($type) {
+    return isset($_SESSION['flash'][$type]);
+}
+
+function flash($type) {
+    return get_flash($type);
+}
 
 function csrf_token() {
     if (empty($_SESSION['_csrf_token'])) {
@@ -111,6 +126,9 @@ function verify_csrf_token($token) {
 }
 
 function redirect_back($fallbackRoute = 'home') {
+    if (!empty($_POST)) {
+        $_SESSION['old_input'] = $_POST;
+    }
     if (!empty($_SERVER['HTTP_REFERER'])) {
         $referer = $_SERVER['HTTP_REFERER'];
         // Pastikan referer berasal dari host yang sama
@@ -177,6 +195,7 @@ function render($view, $data = []) {
     require __DIR__ . '/../Views/layouts/header.php';
     require __DIR__ . '/../Views/' . $view . '.php';
     require __DIR__ . '/../Views/layouts/footer.php';
+    clear_old_input();
 }
 
 function render_auth($view, $data = []) {
@@ -185,6 +204,7 @@ function render_auth($view, $data = []) {
     require __DIR__ . '/../Views/auth/layout_header.php';
     require __DIR__ . '/../Views/' . $view . '.php';
     require __DIR__ . '/../Views/auth/layout_footer.php';
+    clear_old_input();
 }
 
 function render_admin($view, $data = []) {
@@ -195,4 +215,5 @@ function render_admin($view, $data = []) {
     require __DIR__ . '/../Views/admin/layout_header.php';
     require __DIR__ . '/../Views/' . $view . '.php';
     require __DIR__ . '/../Views/admin/layout_footer.php';
+    clear_old_input();
 }
