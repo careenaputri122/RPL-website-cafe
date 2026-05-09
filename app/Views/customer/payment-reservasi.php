@@ -59,6 +59,10 @@
             <?php endif; ?>
           </div>
           <p class="text-success"><i class="fa-solid fa-check-circle"></i> Bukti sudah diunggah, menunggu verifikasi admin.</p>
+          <div class="mt-4">
+            <a href="<?= url('pesan?jenis=reservasi&reservasi_id=' . $reservation['id']) ?>" class="btn dc-btn-primary"><i class="fa-solid fa-utensils"></i> Pre-order Menu Sekarang</a>
+            <a href="<?= url('riwayat') ?>" class="btn dc-btn-ghost">Ke Riwayat</a>
+          </div>
         </div>
         <?php endif; ?>
 

@@ -8,7 +8,13 @@
   <link href="<?= asset('css/style.css') ?>" rel="stylesheet">
 </head><body class="dc-admin-body">
 <aside class="dc-admin-sidebar">
-  <a class="dc-admin-brand" href="<?= url('admin/dashboard') ?>"><span class="dc-logo-circle"><i class="fa-solid fa-mug-saucer"></i></span><strong><?= e(app_config('name')) ?></strong></a>
+  <div class="dc-admin-brand">
+    <span class="dc-logo-circle"><i class="fa-solid fa-mug-saucer"></i></span>
+    <div class="dc-brand-name">
+      <div style="font-size: 0.7rem; letter-spacing: 0.1em; color: var(--gold); text-transform: uppercase; line-height: 1;">Admin Panel</div>
+      <div style="font-size: 1.1rem;"><?= e(app_config('name')) ?></div>
+    </div>
+  </div>
   <?php $items = [
     'admin/dashboard' => ['Dashboard','fa-chart-line'], 'admin/menu' => ['Kelola Menu','fa-bowl-food'], 'admin/meja' => ['Kelola Meja','fa-chair'], 'admin/reservasi' => ['Reservasi','fa-calendar-check'], 'admin/pesanan' => ['Pesanan','fa-receipt'], 'admin/payment' => ['Payment','fa-credit-card'], 'admin/laporan' => ['Laporan','fa-file-invoice-dollar'], 'admin/profile' => ['Profil Admin','fa-user-gear']
   ]; ?>

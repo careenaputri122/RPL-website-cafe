@@ -55,3 +55,23 @@
 </nav>
 <main class="dc-main">
 <?php require __DIR__ . '/../partials/flash.php'; ?>
+<?php if (is_logged_in() && !is_admin()): ?>
+  <?php 
+    $unpaid = 0;
+    foreach (get_payments(false) as $p) {
+        if ($p['status'] === 'pending' && !payment_has_receipt($p)) {
+            $unpaid++;
+        }
+    }
+    if ($unpaid > 0): 
+  ?>
+  <div class="container mt-4">
+    <div class="alert alert-warning border-warning shadow-sm d-flex align-items-center justify-content-between">
+      <div>
+        <i class="fa-solid fa-triangle-exclamation me-2"></i> Anda memiliki <strong><?= $unpaid ?> tagihan</strong> yang belum dibayar.
+      </div>
+      <a href="<?= url('payment/bulk') ?>" class="btn btn-sm btn-warning fw-bold">Bayar Semua Sekaligus</a>
+    </div>
+  </div>
+  <?php endif; ?>
+<?php endif; ?>
