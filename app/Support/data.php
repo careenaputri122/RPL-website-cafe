@@ -60,7 +60,6 @@ function db()
         $failed = true;
         error_log('[DB ERROR] ' . $e->getMessage());
         die('[DB ERROR] ' . $e->getMessage());
-        return null;
     }
 }
 
@@ -318,18 +317,25 @@ function init_demo_state()
 
 // ============================================================
 // AUTO-EXPIRE RESERVASI MASA LALU
-// Dipanggil sekali tiap request dari bootstrap.php
+// FIX #22: Throttle — query UPDATE hanya dijalankan max 1x per menit
 // ============================================================
 function auto_expire_past_reservations()
 {
     if (!using_database()) {
         return;
     }
+    // Throttle: skip jika sudah dijalankan dalam 60 detik terakhir
+    $lastRun = isset($_SESSION['_expire_ran']) ? (int)$_SESSION['_expire_ran'] : 0;
+    if ((time() - $lastRun) < 60) {
+        return;
+    }
+    $_SESSION['_expire_ran'] = time();
+
     // Reservasi pending/confirmed yang tanggalnya sudah lewat,
     // atau hari ini tapi jam selesai (jam + durasi) sudah terlampaui
     db_exec(
         "UPDATE reservasi
-         SET status_reservasi = 'expired'
+         SET status_reservasi = 'cancelled'
          WHERE status_reservasi IN ('pending', 'confirmed')
            AND (
                tanggal < CURDATE()
@@ -476,17 +482,20 @@ function get_order_items($orderId)
     return [];
 }
 
-function map_order_row($row)
+function map_order_row($row, $allItems = [])
 {
+    $orderId = (int)$row['id'];
+    // Jika $allItems sudah disediakan (batch load), gunakan itu. Fallback ke per-query.
+    $items = isset($allItems[$orderId]) ? $allItems[$orderId] : get_order_items($orderId);
     return [
-        'id' => (int)$row['id'],
+        'id' => $orderId,
         'kode' => $row['kode'],
         'reservation_id' => isset($row['reservation_id']) ? (int)$row['reservation_id'] : null,
         'nama' => $row['nama'],
         'email' => $row['email'],
         'jenis' => $row['jenis'],
         'no_meja' => isset($row['no_meja']) ? $row['no_meja'] : '',
-        'items' => get_order_items((int)$row['id']),
+        'items' => $items,
         'total' => (float)$row['total'],
         'deposit' => (float)$row['deposit'],
         'status' => $row['status'],
@@ -494,6 +503,7 @@ function map_order_row($row)
     ];
 }
 
+// FIX #1: Eliminasi N+1 Query — load semua items dalam SATU query, lalu group di PHP
 function get_orders($all = false)
 {
     if (!$all && !current_user()) {
@@ -508,7 +518,35 @@ function get_orders($all = false)
             $params[] = (int)$user['id'];
         }
         $sql = "SELECT ps.id_pesanan AS id, CONCAT('ORD-', LPAD(1000 + ps.id_pesanan, 4, '0')) AS kode, ps.id_reservasi AS reservation_id, p.nama, p.email, jp.nama_pesanan AS jenis, COALESCE(m.no_meja, '-') AS no_meja, ps.total_harga AS total, ps.deposit, ps.status_pesanan AS status, ps.created_at FROM pesanan ps JOIN pelanggan p ON p.id_pelanggan = ps.id_pelanggan JOIN jenis_pesanan jp ON jp.id_jenis_pesanan = ps.id_jenis_pesanan LEFT JOIN meja m ON m.id_meja = ps.id_meja $where ORDER BY ps.created_at DESC, ps.id_pesanan DESC";
-        return array_map('map_order_row', db_all($sql, $params));
+        $orderRows = db_all($sql, $params);
+        if (empty($orderRows)) {
+            return [];
+        }
+        // Batch load semua items untuk semua pesanan sekaligus (1 query, bukan N query)
+        $orderIds = array_map(fn($r) => (int)$r['id'], $orderRows);
+        $placeholders = implode(',', array_fill(0, count($orderIds), '?'));
+        $itemRows = db_all(
+            "SELECT d.id_pesanan, d.id_menu AS id, m.nama_menu AS nama,
+                    d.harga_satuan AS harga, d.jumlah AS qty, d.subtotal
+             FROM detail_pesanan d
+             JOIN menu m ON m.id_menu = d.id_menu
+             WHERE d.id_pesanan IN ($placeholders)
+             ORDER BY d.id_pesanan ASC, d.id_detail ASC",
+            $orderIds
+        );
+        // Group items by order_id
+        $allItems = [];
+        foreach ($itemRows as $item) {
+            $pid = (int)$item['id_pesanan'];
+            $allItems[$pid][] = [
+                'id'       => (int)$item['id'],
+                'nama'     => $item['nama'],
+                'harga'    => (float)$item['harga'],
+                'qty'      => (int)$item['qty'],
+                'subtotal' => (float)$item['subtotal'],
+            ];
+        }
+        return array_map(fn($row) => map_order_row($row, $allItems), $orderRows);
     }
     $rows = $_SESSION['orders'];
     if (should_filter_customer($all)) {
@@ -547,14 +585,31 @@ function get_payments($all = false)
     }
     if (using_database()) {
         $params = [];
-        $where = '';
+        $whereClause = '';
         $user = current_user();
         if (should_filter_customer($all)) {
-            $where = 'WHERE pl.id_pelanggan = ?';
+            $whereClause = 'WHERE pl.id_pelanggan = ?';
             $params[] = (int)$user['id'];
         }
-        $whereClause = $where ? $where . " AND pay.tipe = 'pesanan'" : "WHERE pay.tipe = 'pesanan'";
-        $sql = "SELECT pay.id_payment AS id, pay.id_pesanan AS order_id, pay.id_reservasi AS reservation_id, pay.tipe, CONCAT('PAY-', LPAD(1000 + pay.id_payment, 4, '0')) AS kode, pl.nama, pay.jumlah AS total, pay.bukti_tf, pay.status_payment AS status, pay.catatan_admin, pay.tanggal_upload, pay.tanggal_verifikasi FROM payment pay JOIN pesanan ps ON ps.id_pesanan = pay.id_pesanan JOIN pelanggan pl ON pl.id_pelanggan = ps.id_pelanggan $whereClause ORDER BY pay.created_at DESC, pay.id_payment DESC";
+        // LEFT JOIN agar payment tipe 'booking' (id_pesanan=NULL) tetap ikut tampil.
+        // Nama pelanggan diambil via pesanan, atau fallback via reservasi jika pesanan NULL.
+        // FIX #3: Ganti OR JOIN dengan COALESCE pada subquery — hindari duplikat baris
+        $sql = "SELECT pay.*,
+                       pay.id_payment AS id,
+                       pay.id_pesanan AS order_id,
+                       pay.id_reservasi AS reservation_id,
+                       pay.status_payment AS status,
+                       pay.jumlah AS total,
+                       CONCAT('PAY-', LPAD(1000 + pay.id_payment, 4, '0')) AS kode,
+                       COALESCE(pl_ps.nama, pl_rsv.nama, 'Unknown') AS nama
+                FROM payment pay
+                LEFT JOIN pesanan ps       ON ps.id_pesanan      = pay.id_pesanan
+                LEFT JOIN pelanggan pl_ps  ON pl_ps.id_pelanggan = ps.id_pelanggan
+                LEFT JOIN reservasi rsv    ON rsv.id_reservasi   = pay.id_reservasi
+                LEFT JOIN pelanggan pl_rsv ON pl_rsv.id_pelanggan= rsv.id_pelanggan
+                LEFT JOIN pelanggan pl     ON pl.id_pelanggan    = COALESCE(ps.id_pelanggan, rsv.id_pelanggan)
+                $whereClause
+                ORDER BY pay.created_at DESC, pay.id_payment DESC";
         return array_map('map_payment_row', db_all($sql, $params));
     }
     $rows = $_SESSION['payments'];
@@ -620,9 +675,36 @@ function find_payment_by_reservasi($resId)
     return null;
 }
 
+// FIX #3: $userId digunakan secara eksplisit dengan query langsung ke DB
 function get_unpaid_payments_by_user($userId)
 {
-    $allPayments = get_payments(false); // get current customer payments
+    $userId = (int)$userId;
+
+    if (using_database()) {
+        // Query langsung ke DB — lebih cepat dan tidak memuat semua payments
+        $rows = db_all(
+            "SELECT pay.*,
+                    pay.id_payment AS id,
+                    pay.id_pesanan AS order_id,
+                    pay.id_reservasi AS reservation_id,
+                    pay.status_payment AS status,
+                    pay.jumlah AS total,
+                    CONCAT('PAY-', LPAD(1000 + pay.id_payment, 4, '0')) AS kode,
+                    COALESCE(pl_ps.nama, pl_rsv.nama) AS nama
+             FROM payment pay
+             LEFT JOIN pesanan ps      ON ps.id_pesanan     = pay.id_pesanan
+             LEFT JOIN pelanggan pl_ps ON pl_ps.id_pelanggan= ps.id_pelanggan
+             LEFT JOIN reservasi rsv   ON rsv.id_reservasi  = pay.id_reservasi
+             LEFT JOIN pelanggan pl_rsv ON pl_rsv.id_pelanggan = rsv.id_pelanggan
+             WHERE pay.status_payment = 'pending'
+               AND pay.bukti_tf IS NULL
+               AND COALESCE(ps.id_pelanggan, rsv.id_pelanggan) = ?",
+            [$userId]
+        );
+        return array_map('map_payment_row', $rows);
+    }
+    // Session fallback
+    $allPayments = get_payments(false);
     return array_values(array_filter($allPayments, function ($p) {
         return $p['status'] === 'pending' && !payment_has_receipt($p);
     }));
@@ -661,14 +743,23 @@ function return_order_stock($orderId)
         return;
     }
     if (using_database()) {
+        // Cek status terakhir, jika sudah dibatalkan jangan kembalikan stok lagi (idempotent)
+        $order = db_one('SELECT status_pesanan FROM pesanan WHERE id_pesanan = ?', [$orderId]);
+        if (!$order || $order['status_pesanan'] === 'dibatalkan') {
+            return;
+        }
+
         $items = db_all('SELECT id_menu, jumlah FROM detail_pesanan WHERE id_pesanan = ?', [$orderId]);
         foreach ($items as $item) {
             db_exec('UPDATE stok_menu SET jumlah_stok = jumlah_stok + ? WHERE id_menu = ?', [(int)$item['jumlah'], (int)$item['id_menu']]);
         }
         return;
     }
-    foreach ($_SESSION['orders'] as $order) {
+    foreach ($_SESSION['orders'] as $idx => $order) {
         if ((int)$order['id'] === $orderId) {
+            if (isset($order['status']) && $order['status'] === 'dibatalkan') {
+                return;
+            }
             foreach ($order['items'] as $item) {
                 foreach ($_SESSION['menus'] as $i => $menu) {
                     if ((int)$menu['id'] === (int)$item['id']) {
@@ -689,7 +780,11 @@ function release_table_for_order($orderId)
         return;
     }
     if (using_database()) {
-        db_exec("UPDATE meja m JOIN pesanan ps ON ps.id_meja = m.id_meja SET m.status = 'tersedia' WHERE ps.id_pesanan = ? AND ps.id_meja IS NOT NULL", [$orderId]);
+        // Ambil ID Meja dulu untuk memastikan kita hanya mengupdate meja yang benar-benar terkait
+        $order = db_one('SELECT id_meja FROM pesanan WHERE id_pesanan = ?', [$orderId]);
+        if ($order && !empty($order['id_meja'])) {
+            db_exec("UPDATE meja SET status = 'tersedia' WHERE id_meja = ?", [(int)$order['id_meja']]);
+        }
         return;
     }
     $noMeja = '';
@@ -699,7 +794,7 @@ function release_table_for_order($orderId)
             break;
         }
     }
-    if ($noMeja === '') {
+    if ($noMeja === '' || $noMeja === '-') {
         return;
     }
     foreach ($_SESSION['tables'] as $i => $table) {
@@ -736,25 +831,32 @@ function update_order_status($id, $status)
         }
         $oldStatus = $order['status_pesanan'];
         if ($oldStatus === 'dibatalkan' && $status !== 'dibatalkan') {
-            return ['ok' => false, 'message' => 'Pesanan yang sudah dibatalkan tidak dapat diaktifkan kembali. Buat pesanan baru.'];
+            return ['ok' => false, 'message' => 'Pesanan yang sudah dibatalkan tidak dapat diaktifkan kembali.'];
         }
-        if ($status === 'diproses') {
-            $payment = db_one('SELECT status_payment, bukti_tf FROM payment WHERE id_pesanan = ? LIMIT 1', [$id]);
+        if ($oldStatus === 'selesai' && $status !== 'selesai') {
+            return ['ok' => false, 'message' => 'Pesanan yang sudah selesai tidak dapat diubah statusnya lagi.'];
+        }
+
+        // VALIDASI TRANSISI: Harus verified untuk diproses/selesai
+        if (in_array($status, ['diproses', 'selesai'], true)) {
+            $payment = db_one('SELECT status_payment FROM payment WHERE id_pesanan = ? LIMIT 1', [$id]);
             if (!$payment || $payment['status_payment'] !== 'verified') {
-                return ['ok' => false, 'message' => 'Pesanan hanya bisa diproses setelah payment verified.'];
+                return ['ok' => false, 'message' => 'Pesanan hanya bisa ' . $status . ' setelah payment verified.'];
             }
         }
+
         $pdo = db();
         $pdo->beginTransaction();
         try {
             if ($oldStatus !== 'dibatalkan' && $status === 'dibatalkan') {
                 return_order_stock($id);
+                release_table_for_order($id);
                 db_exec("UPDATE payment SET status_payment = 'rejected', catatan_admin = COALESCE(catatan_admin, 'Pesanan dibatalkan oleh admin.'), tanggal_verifikasi = COALESCE(tanggal_verifikasi, NOW()) WHERE id_pesanan = ? AND status_payment = 'pending'", [$id]);
             }
-            db_exec('UPDATE pesanan SET status_pesanan = ? WHERE id_pesanan = ?', [$status, $id]);
-            if (in_array($status, ['selesai', 'dibatalkan'], true)) {
+            if ($status === 'selesai') {
                 release_table_for_order($id);
             }
+            db_exec('UPDATE pesanan SET status_pesanan = ? WHERE id_pesanan = ?', [$status, $id]);
             $pdo->commit();
             return ['ok' => true, 'message' => 'Status pesanan berhasil diubah menjadi ' . $status . '.'];
         } catch (Throwable $e) {
@@ -771,14 +873,20 @@ function update_order_status($id, $status)
         if ($oldStatus === 'dibatalkan' && $status !== 'dibatalkan') {
             return ['ok' => false, 'message' => 'Pesanan yang sudah dibatalkan tidak dapat diaktifkan kembali.'];
         }
-        if ($status === 'diproses') {
+        if ($oldStatus === 'selesai' && $status !== 'selesai') {
+            return ['ok' => false, 'message' => 'Pesanan yang sudah selesai tidak dapat diubah statusnya lagi.'];
+        }
+
+        if (in_array($status, ['diproses', 'selesai'], true)) {
             $payment = find_payment_by_order($id);
             if (!$payment || $payment['status'] !== 'verified') {
-                return ['ok' => false, 'message' => 'Pesanan hanya bisa diproses setelah payment verified.'];
+                return ['ok' => false, 'message' => 'Pesanan hanya bisa ' . $status . ' setelah payment verified.'];
             }
         }
+
         if ($oldStatus !== 'dibatalkan' && $status === 'dibatalkan') {
             return_order_stock($id);
+            release_table_for_order($id);
             foreach ($_SESSION['payments'] as $pi => $payment) {
                 if ((int)$payment['order_id'] === $id && $payment['status'] === 'pending') {
                     $_SESSION['payments'][$pi]['status'] = 'rejected';
@@ -787,10 +895,10 @@ function update_order_status($id, $status)
                 }
             }
         }
-        $_SESSION['orders'][$i]['status'] = $status;
-        if (in_array($status, ['selesai', 'dibatalkan'], true)) {
+        if ($status === 'selesai') {
             release_table_for_order($id);
         }
+        $_SESSION['orders'][$i]['status'] = $status;
         return ['ok' => true, 'message' => 'Status pesanan berhasil diubah menjadi ' . $status . '.'];
     }
     return ['ok' => false, 'message' => 'Pesanan tidak ditemukan.'];
@@ -800,7 +908,7 @@ function dashboard_stats()
 {
     if (using_database()) {
         $today = date('Y-m-d');
-        $income = db_one("SELECT COALESCE(SUM(pay.jumlah),0) AS total FROM payment pay WHERE pay.status_payment = 'verified' AND pay.tipe IN ('pesanan', 'booking') AND DATE(COALESCE(pay.tanggal_verifikasi, pay.updated_at)) = ?", [$today]);
+        $income = db_one("SELECT COALESCE(SUM(pay.jumlah),0) AS total FROM payment pay WHERE pay.status_payment = 'verified' AND pay.tipe IN ('pesanan', 'booking') AND DATE(COALESCE(pay.tanggal_verifikasi, pay.tanggal_upload, pay.created_at)) = ?", [$today]);
         $reservations = db_one('SELECT COUNT(*) AS total FROM reservasi WHERE tanggal = ?', [$today]);
         $pending = db_one("SELECT COUNT(*) AS total FROM payment WHERE status_payment = 'pending'");
         $lowRows = db_all("SELECT m.id_menu AS id, m.nama_menu AS nama, m.kategori, m.harga, m.deskripsi, m.foto, m.is_unggulan AS unggulan, s.jumlah_stok AS stok, s.minimum_stok FROM menu m JOIN stok_menu s ON s.id_menu = m.id_menu WHERE s.jumlah_stok <= s.minimum_stok ORDER BY s.jumlah_stok ASC");
@@ -1603,7 +1711,15 @@ function verify_payment($id, $status, $catatan)
     }
 
     if (using_database()) {
-        $payment = db_one('SELECT pay.*, ps.status_pesanan FROM payment pay JOIN pesanan ps ON ps.id_pesanan = pay.id_pesanan WHERE pay.id_payment = ? LIMIT 1', [$id]);
+        // FIX #2: LEFT JOIN agar booking payments (id_pesanan=NULL) juga bisa diverifikasi
+        $payment = db_one(
+            'SELECT pay.*,
+                    COALESCE(ps.status_pesanan, NULL) AS status_pesanan
+             FROM payment pay
+             LEFT JOIN pesanan ps ON ps.id_pesanan = pay.id_pesanan
+             WHERE pay.id_payment = ? LIMIT 1',
+            [$id]
+        );
         if (!$payment) {
             return ['ok' => false, 'message' => 'Data payment tidak ditemukan.'];
         }
@@ -1623,11 +1739,19 @@ function verify_payment($id, $status, $catatan)
             db_exec('UPDATE payment SET status_payment = ?, catatan_admin = ?, tanggal_verifikasi = NOW(), id_admin = ? WHERE id_payment = ?', [$status, $catatan, $adminId, $id]);
             if ($status === 'verified') {
                 db_exec("UPDATE pesanan SET status_pesanan = 'diproses' WHERE id_pesanan = ? AND status_pesanan <> 'dibatalkan'", [(int)$payment['id_pesanan']]);
+                // Otomatis konfirmasi reservasi jika ada
+                if (!empty($payment['id_reservasi'])) {
+                    db_exec("UPDATE reservasi SET status_reservasi = 'confirmed' WHERE id_reservasi = ? AND status_reservasi = 'pending'", [(int)$payment['id_reservasi']]);
+                }
             } else {
                 if ($payment['status_pesanan'] !== 'dibatalkan') {
                     return_order_stock((int)$payment['id_pesanan']);
                     release_table_for_order((int)$payment['id_pesanan']);
                     db_exec("UPDATE pesanan SET status_pesanan = 'dibatalkan' WHERE id_pesanan = ?", [(int)$payment['id_pesanan']]);
+                    // Otomatis batalkan reservasi jika ada
+                    if (!empty($payment['id_reservasi'])) {
+                        db_exec("UPDATE reservasi SET status_reservasi = 'cancelled' WHERE id_reservasi = ?", [(int)$payment['id_reservasi']]);
+                    }
                 }
             }
             $pdo->commit();
@@ -1644,11 +1768,19 @@ function verify_payment($id, $status, $catatan)
         }
         $orderIndex = null;
         foreach ($_SESSION['orders'] as $oi => $order) {
-            if ((int)$order['id'] === (int)$payment['order_id']) {
+            if ((int)$order['id'] === (int)(isset($payment['order_id']) ? $payment['order_id'] : 0)) {
                 $orderIndex = $oi;
                 break;
             }
         }
+        $resIndex = null;
+        foreach ($_SESSION['reservations'] as $ri => $res) {
+            if ((int)$res['id'] === (int)(isset($payment['reservation_id']) ? $payment['reservation_id'] : 0)) {
+                $resIndex = $ri;
+                break;
+            }
+        }
+
         if ($status === 'verified') {
             if (!payment_has_receipt($payment)) {
                 return ['ok' => false, 'message' => 'Payment belum memiliki bukti transfer. Tidak bisa diverifikasi.'];
@@ -1660,6 +1792,7 @@ function verify_payment($id, $status, $catatan)
         $_SESSION['payments'][$i]['status'] = $status;
         $_SESSION['payments'][$i]['catatan_admin'] = $catatan;
         $_SESSION['payments'][$i]['tanggal_verifikasi'] = date('Y-m-d H:i:s');
+
         if ($orderIndex !== null) {
             if ($status === 'verified') {
                 $_SESSION['orders'][$orderIndex]['status'] = 'diproses';
@@ -1669,6 +1802,15 @@ function verify_payment($id, $status, $catatan)
                     release_table_for_order((int)$payment['order_id']);
                     $_SESSION['orders'][$orderIndex]['status'] = 'dibatalkan';
                 }
+            }
+        }
+        if ($resIndex !== null) {
+            if ($status === 'verified') {
+                if ($_SESSION['reservations'][$resIndex]['status'] === 'pending') {
+                    $_SESSION['reservations'][$resIndex]['status'] = 'confirmed';
+                }
+            } else {
+                $_SESSION['reservations'][$resIndex]['status'] = 'cancelled';
             }
         }
         return ['ok' => true, 'message' => $status === 'verified' ? 'Payment verified. Pesanan masuk status diproses.' : 'Payment rejected. Pesanan dibatalkan dan stok dikembalikan.'];
@@ -1695,7 +1837,40 @@ function sales_report($startDate = '', $endDate = '', $jenisFilter = '')
             $where .= ' AND jp.nama_pesanan = ?';
             $params[] = $jenisFilter;
         }
-        $rows = db_all("SELECT ps.id_pesanan, pay.id_payment, CONCAT('PAY-', LPAD(1000 + pay.id_payment, 4, '0')) AS kode_payment, CONCAT('ORD-', LPAD(1000 + ps.id_pesanan, 4, '0')) AS kode_pesanan, pl.nama AS pelanggan, jp.nama_pesanan AS jenis, ps.total_harga, ps.deposit, pay.status_payment, DATE(COALESCE(pay.tanggal_verifikasi, pay.tanggal_upload, pay.created_at)) AS tanggal FROM payment pay JOIN pesanan ps ON ps.id_pesanan = pay.id_pesanan JOIN pelanggan pl ON pl.id_pelanggan = ps.id_pelanggan JOIN jenis_pesanan jp ON jp.id_jenis_pesanan = ps.id_jenis_pesanan WHERE $where ORDER BY tanggal DESC, pay.id_payment DESC", $params);
+        // FIX #18: Laporan pesanan biasa (tipe=pesanan)
+        $rows = db_all("SELECT ps.id_pesanan, pay.id_payment,
+                               CONCAT('PAY-', LPAD(1000 + pay.id_payment, 4, '0')) AS kode_payment,
+                               CONCAT('ORD-', LPAD(1000 + ps.id_pesanan, 4, '0')) AS kode_pesanan,
+                               pl.nama AS pelanggan, jp.nama_pesanan AS jenis,
+                               ps.total_harga, ps.deposit, pay.status_payment,
+                               DATE(COALESCE(pay.tanggal_verifikasi, pay.tanggal_upload, pay.created_at)) AS tanggal
+                        FROM payment pay
+                        JOIN pesanan ps ON ps.id_pesanan = pay.id_pesanan
+                        JOIN pelanggan pl ON pl.id_pelanggan = ps.id_pelanggan
+                        JOIN jenis_pesanan jp ON jp.id_jenis_pesanan = ps.id_jenis_pesanan
+                        WHERE $where ORDER BY tanggal DESC, pay.id_payment DESC", $params);
+
+        // FIX #18: Tambahkan booking payments ke laporan (sebelumnya tidak masuk sama sekali)
+        $bookingWhere = "pay.status_payment = 'verified' AND pay.tipe = 'booking'
+                         AND DATE(COALESCE(pay.tanggal_verifikasi, pay.created_at)) BETWEEN ? AND ?";
+        $bookingParams = [$startDate, $endDate];
+        $bookingRows = ($jenisFilter === '' || $jenisFilter === 'reservasi')
+            ? db_all("SELECT NULL AS id_pesanan, pay.id_payment,
+                             CONCAT('BKP-', LPAD(1000 + pay.id_payment, 4, '0')) AS kode_payment,
+                             CONCAT('RSV-', LPAD(1000 + r.id_reservasi, 4, '0')) AS kode_pesanan,
+                             pl.nama AS pelanggan, 'reservasi' AS jenis,
+                             pay.jumlah AS total_harga, pay.jumlah AS deposit, pay.status_payment,
+                             DATE(COALESCE(pay.tanggal_verifikasi, pay.created_at)) AS tanggal
+                      FROM payment pay
+                      JOIN reservasi r ON r.id_reservasi = pay.id_reservasi
+                      JOIN pelanggan pl ON pl.id_pelanggan = r.id_pelanggan
+                      WHERE $bookingWhere ORDER BY tanggal DESC", $bookingParams)
+            : [];
+
+        // Gabungkan dan sort ulang berdasar tanggal DESC
+        $rows = array_merge($rows, $bookingRows);
+        usort($rows, fn($a, $b) => strcmp((string)$b['tanggal'], (string)$a['tanggal']));
+
         $total = 0;
         foreach ($rows as $r) {
             $jenis = $r['jenis'];
@@ -1804,14 +1979,13 @@ function find_payment_by_reservation($reservationId)
     $reservationId = (int)$reservationId;
     if (using_database()) {
         $row = db_one(
-            "SELECT pay.id_payment AS id, pay.id_pesanan AS order_id, pay.id_reservasi AS reservation_id, pay.tipe,
+            "SELECT pay.*, pay.id_payment AS id, pay.id_pesanan AS order_id, pay.id_reservasi AS reservation_id,
                     CONCAT('BKP-', LPAD(1000 + pay.id_payment, 4, '0')) AS kode,
-                    pl.nama, pay.jumlah AS total, pay.bukti_tf, pay.status_payment AS status,
-                    pay.catatan_admin, pay.tanggal_upload, pay.tanggal_verifikasi
+                    pl.nama, pay.jumlah AS total, pay.status_payment AS status
              FROM payment pay
              JOIN reservasi r ON r.id_reservasi = pay.id_reservasi
              JOIN pelanggan pl ON pl.id_pelanggan = r.id_pelanggan
-             WHERE pay.id_reservasi = ? AND pay.tipe = 'booking' LIMIT 1",
+             WHERE pay.id_reservasi = ? LIMIT 1",
             [$reservationId]
         );
         return $row ? map_payment_row($row) : null;
@@ -1822,29 +1996,25 @@ function find_payment_by_reservation($reservationId)
 function get_all_payments_for_admin()
 {
     if (using_database()) {
-        $sql1 = "SELECT pay.id_payment AS id, pay.id_pesanan AS order_id, pay.id_reservasi AS reservation_id, pay.tipe,
-                        CONCAT('PAY-', LPAD(1000 + pay.id_payment, 4, '0')) AS kode,
-                        pl.nama, pay.jumlah AS total, pay.bukti_tf, pay.status_payment AS status,
-                        pay.catatan_admin, pay.tanggal_upload, pay.tanggal_verifikasi
-                 FROM payment pay
-                 JOIN pesanan ps ON ps.id_pesanan = pay.id_pesanan
-                 JOIN pelanggan pl ON pl.id_pelanggan = ps.id_pelanggan
-                 WHERE pay.tipe = 'pesanan'
-                 ORDER BY pay.created_at DESC, pay.id_payment DESC";
-        $pesananPayments = array_map('map_payment_row', db_all($sql1));
-
-        $sql2 = "SELECT pay.id_payment AS id, NULL AS order_id, pay.id_reservasi AS reservation_id, pay.tipe,
-                        CONCAT('BKP-', LPAD(1000 + pay.id_payment, 4, '0')) AS kode,
-                        pl.nama, pay.jumlah AS total, pay.bukti_tf, pay.status_payment AS status,
-                        pay.catatan_admin, pay.tanggal_upload, pay.tanggal_verifikasi
-                 FROM payment pay
-                 JOIN reservasi r ON r.id_reservasi = pay.id_reservasi
-                 JOIN pelanggan pl ON pl.id_pelanggan = r.id_pelanggan
-                 WHERE pay.tipe = 'booking'
-                 ORDER BY pay.created_at DESC, pay.id_payment DESC";
-        $bookingPayments = array_map('map_payment_row', db_all($sql2));
-
-        return array_merge($bookingPayments, $pesananPayments);
+        // FIX: Ganti OR JOIN dengan COALESCE untuk menghindari baris duplikat
+        $sql = "SELECT pay.*, pay.id_payment AS id, pay.id_pesanan AS order_id, pay.id_reservasi AS reservation_id,
+                       pay.status_payment AS status, pay.jumlah AS total,
+                       CONCAT('PAY-', LPAD(1000 + pay.id_payment, 4, '0')) AS kode,
+                       COALESCE(pl_ps.nama, pl_rsv.nama, 'Unknown') AS nama
+                FROM payment pay
+                LEFT JOIN pesanan ps       ON ps.id_pesanan      = pay.id_pesanan
+                LEFT JOIN pelanggan pl_ps  ON pl_ps.id_pelanggan = ps.id_pelanggan
+                LEFT JOIN reservasi rsv    ON rsv.id_reservasi   = pay.id_reservasi
+                LEFT JOIN pelanggan pl_rsv ON pl_rsv.id_pelanggan= rsv.id_pelanggan
+                ORDER BY pay.created_at DESC, pay.id_payment DESC";
+        $rows = db_all($sql);
+        return array_map(function($row) {
+            $mapped = map_payment_row($row);
+            if ($mapped['tipe'] === 'booking') {
+                $mapped['kode'] = str_replace('PAY-', 'BKP-', $mapped['kode']);
+            }
+            return $mapped;
+        }, $rows);
     }
     return get_payments(true);
 }
@@ -1901,13 +2071,9 @@ function upload_booking_receipt($reservationId)
         }
         return ['ok' => true, 'message' => 'Bukti pembayaran booking fee berhasil dikirim. Admin akan melakukan verifikasi.'];
     }
-    $pdo = db();
-    if (!$pdo) {
-        delete_uploaded_file_if_local($filePath);
-        return ['ok' => false, 'message' => 'Koneksi database gagal. Pastikan MySQL berjalan dan konfigurasi database benar.'];
-    }
+    // Mode session/demo: fungsi ini memerlukan database, tidak bisa diproses tanpa DB
     delete_uploaded_file_if_local($filePath);
-    return ['ok' => false, 'message' => 'Tabel database belum lengkap. Pastikan SQL sudah diimport dengan benar.'];
+    return ['ok' => false, 'message' => 'Fitur upload booking hanya tersedia saat database aktif. Pastikan MySQL berjalan dan SQL sudah diimport.'];
 }
 
 function verify_booking_payment($id, $status, $catatan)
@@ -1949,23 +2115,95 @@ function verify_booking_payment($id, $status, $catatan)
                     "UPDATE reservasi SET status_reservasi = 'confirmed' WHERE id_reservasi = ? AND status_reservasi <> 'cancelled'",
                     [(int)$payment['id_reservasi']]
                 );
+                // Otomatis pindahkan pesanan terkait ke diproses
+                if (!empty($payment['id_pesanan'])) {
+                    db_exec("UPDATE pesanan SET status_pesanan = 'diproses' WHERE id_pesanan = ? AND status_pesanan <> 'dibatalkan'", [(int)$payment['id_pesanan']]);
+                }
             } else {
                 db_exec(
                     "UPDATE reservasi SET status_reservasi = 'cancelled' WHERE id_reservasi = ?",
                     [(int)$payment['id_reservasi']]
                 );
+                // Otomatis batalkan pesanan terkait dan kembalikan stok
+                if (!empty($payment['id_pesanan'])) {
+                    return_order_stock((int)$payment['id_pesanan']);
+                    release_table_for_order((int)$payment['id_pesanan']);
+                    db_exec("UPDATE pesanan SET status_pesanan = 'dibatalkan' WHERE id_pesanan = ?", [(int)$payment['id_pesanan']]);
+                }
             }
             $pdo->commit();
             return [
                 'ok' => true,
                 'message' => $status === 'verified'
-                    ? 'Booking payment verified. Reservasi dikonfirmasi.'
-                    : 'Booking payment rejected. Reservasi dibatalkan.'
+                    ? 'Booking payment verified. Reservasi dikonfirmasi dan pesanan diproses.'
+                    : 'Booking payment rejected. Reservasi & pesanan dibatalkan.'
             ];
         } catch (Throwable $e) {
             $pdo->rollBack();
             return ['ok' => false, 'message' => 'Gagal memperbarui status: ' . $e->getMessage()];
         }
     }
-    return ['ok' => false, 'message' => 'Database tidak tersedia.'];
+
+    // SESSION DEMO FALLBACK
+    foreach ($_SESSION['payments'] as $i => $payment) {
+        if ((int)$payment['id'] !== $id || (isset($payment['tipe']) ? $payment['tipe'] : '') !== 'booking') {
+            continue;
+        }
+
+        $resIndex = null;
+        foreach ($_SESSION['reservations'] as $ri => $res) {
+            if ((int)$res['id'] === (int)(isset($payment['reservation_id']) ? $payment['reservation_id'] : 0)) {
+                $resIndex = $ri;
+                break;
+            }
+        }
+
+        $orderIndex = null;
+        if (!empty($payment['order_id'])) {
+            foreach ($_SESSION['orders'] as $oi => $order) {
+                if ((int)$order['id'] === (int)$payment['order_id']) {
+                    $orderIndex = $oi;
+                    break;
+                }
+            }
+        }
+
+        if ($status === 'verified') {
+            if (!payment_has_receipt($payment)) {
+                return ['ok' => false, 'message' => 'Payment belum memiliki bukti transfer.'];
+            }
+            if ($resIndex !== null && $_SESSION['reservations'][$resIndex]['status'] === 'cancelled') {
+                return ['ok' => false, 'message' => 'Reservasi sudah dibatalkan.'];
+            }
+        }
+
+        $_SESSION['payments'][$i]['status'] = $status;
+        $_SESSION['payments'][$i]['catatan_admin'] = $catatan;
+        $_SESSION['payments'][$i]['tanggal_verifikasi'] = date('Y-m-d H:i:s');
+
+        if ($resIndex !== null) {
+            $_SESSION['reservations'][$resIndex]['status'] = $status === 'verified' ? 'confirmed' : 'cancelled';
+        }
+
+        if ($orderIndex !== null) {
+            if ($status === 'verified') {
+                $_SESSION['orders'][$orderIndex]['status'] = 'diproses';
+            } else {
+                if ($_SESSION['orders'][$orderIndex]['status'] !== 'dibatalkan') {
+                    return_order_stock((int)$payment['order_id']);
+                    release_table_for_order((int)$payment['order_id']);
+                    $_SESSION['orders'][$orderIndex]['status'] = 'dibatalkan';
+                }
+            }
+        }
+
+        return [
+            'ok' => true,
+            'message' => $status === 'verified'
+                ? 'Booking payment verified. Reservasi dikonfirmasi dan pesanan diproses.'
+                : 'Booking payment rejected. Reservasi & pesanan dibatalkan.'
+        ];
+    }
+
+    return ['ok' => false, 'message' => 'Data payment booking tidak ditemukan.'];
 }

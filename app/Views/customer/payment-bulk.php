@@ -20,7 +20,7 @@
                 <?php $totalSemua = 0; foreach ($unpaidPayments as $p): $totalSemua += $p['total']; ?>
                 <tr>
                   <td><strong><?= e($p['kode']) ?></strong></td>
-                  <td><span class="badge bg-light text-dark border"><?= e($p['type']) ?></span></td>
+                  <td><span class="badge bg-light text-dark border"><?= e($p['tipe'] ?? '-') ?></span></td>
                   <td class="text-end fw-bold"><?= rupiah($p['total']) ?></td>
                 </tr>
                 <?php endforeach; ?>
@@ -41,13 +41,14 @@
           
           <div class="dc-bank-info p-3 bg-light rounded mb-4">
             <div class="row">
+<?php $bankInfo = app_config('bank'); ?>
               <div class="col-sm-6">
                 <small class="text-muted d-block">Bank Tujuan:</small>
-                <strong>Bank BCA</strong>
+                <strong>Bank <?= e($bankInfo['nama_bank']) ?></strong>
               </div>
               <div class="col-sm-6 text-sm-end">
                 <small class="text-muted d-block">Nomor Rekening:</small>
-                <strong>1234 5678 90 (a/n Cafe Nusantara)</strong>
+                <strong><?= e($bankInfo['nomor_rekening']) ?> (a/n <?= e($bankInfo['atas_nama']) ?>)</strong>
               </div>
             </div>
           </div>
@@ -58,7 +59,7 @@
           </div>
 
           <div class="d-grid gap-2">
-            <button type="submit" class="btn dc-btn-primary btn-lg">Bayar Semua Sekarang</button>
+            <button type="submit" class="btn dc-btn-submit btn-lg">Bayar Semua Sekarang</button>
             <a href="<?= url('riwayat') ?>" class="btn btn-link text-muted">Batal & Kembali ke Riwayat</a>
           </div>
         </div>

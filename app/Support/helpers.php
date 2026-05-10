@@ -122,7 +122,12 @@ function verify_csrf_token($token) {
     if (!isset($_SESSION['_csrf_token']) || !is_string($token)) {
         return false;
     }
-    return hash_equals($_SESSION['_csrf_token'], $token);
+    $valid = hash_equals($_SESSION['_csrf_token'], $token);
+    if ($valid) {
+        // FIX #9: Rotasi token setelah diverifikasi — token lama tidak bisa dipakai lagi
+        unset($_SESSION['_csrf_token']);
+    }
+    return $valid;
 }
 
 function redirect_back($fallbackRoute = 'home') {
@@ -172,10 +177,42 @@ function is_admin() {
     return $user && isset($user['role']) && $user['role'] === 'admin';
 }
 
+// FIX #10: Brute force protection — maksimal 5 percobaan per email dalam 10 menit
+function check_login_rate_limit($email) {
+    $key = '_login_attempts_' . md5(strtolower(trim($email)));
+    $timeKey = $key . '_t';
+    $now = time();
+    $window = 600; // 10 menit
+    $maxAttempts = 5;
+
+    // Reset counter jika window sudah lewat
+    if (isset($_SESSION[$timeKey]) && ($now - $_SESSION[$timeKey]) > $window) {
+        unset($_SESSION[$key], $_SESSION[$timeKey]);
+    }
+
+    $_SESSION[$key] = ($_SESSION[$key] ?? 0) + 1;
+    if (!isset($_SESSION[$timeKey])) {
+        $_SESSION[$timeKey] = $now;
+    }
+
+    if ($_SESSION[$key] > $maxAttempts) {
+        $wait = $window - ($now - $_SESSION[$timeKey]);
+        return 'Terlalu banyak percobaan login. Coba lagi dalam ' . ceil($wait / 60) . ' menit.';
+    }
+    return null;
+}
+
+function reset_login_rate_limit($email) {
+    $key = '_login_attempts_' . md5(strtolower(trim($email)));
+    unset($_SESSION[$key], $_SESSION[$key . '_t']);
+}
+
 function require_login() {
     if (!is_logged_in()) {
         set_flash('warning', 'Silakan login terlebih dahulu. Gunakan demo: budi@email.com / password123.');
         $_SESSION['_open_login_modal'] = true;
+        // FIX #15: Simpan halaman tujuan agar setelah login langsung diarahkan ke sana
+        $_SESSION['_intended_url'] = url(request_route());
         redirect_to('home');
     }
 }
@@ -188,8 +225,8 @@ function require_admin() {
 }
 
 function render($view, $data = []) {
-    // Sanitasi nama view untuk mencegah path traversal
-    $view = preg_replace('/[^a-zA-Z0-9_\/]/', '', $view);
+    // Sanitasi nama view untuk mencegah path traversal (izinkan huruf, angka, _, /, -)
+    $view = preg_replace('/[^a-zA-Z0-9_\/\-]/', '', $view);
     extract($data);
     $current_page = isset($current_page) ? $current_page : request_route();
     require __DIR__ . '/../Views/layouts/header.php';
@@ -199,7 +236,7 @@ function render($view, $data = []) {
 }
 
 function render_auth($view, $data = []) {
-    $view = preg_replace('/[^a-zA-Z0-9_\/]/', '', $view);
+    $view = preg_replace('/[^a-zA-Z0-9_\/\-]/', '', $view);
     extract($data);
     require __DIR__ . '/../Views/auth/layout_header.php';
     require __DIR__ . '/../Views/' . $view . '.php';
@@ -209,7 +246,7 @@ function render_auth($view, $data = []) {
 
 function render_admin($view, $data = []) {
     require_admin();
-    $view = preg_replace('/[^a-zA-Z0-9_\/]/', '', $view);
+    $view = preg_replace('/[^a-zA-Z0-9_\/\-]/', '', $view);
     extract($data);
     $current_admin_page = isset($current_admin_page) ? $current_admin_page : request_route();
     require __DIR__ . '/../Views/admin/layout_header.php';

@@ -69,14 +69,34 @@
 <main class="dc-main">
 <?php require __DIR__ . '/../partials/flash.php'; ?>
 <?php if (is_logged_in() && !is_admin()): ?>
-  <?php 
-    $unpaid = 0;
-    foreach (get_payments(false) as $p) {
-        if ($p['status'] === 'pending' && !payment_has_receipt($p)) {
-            $unpaid++;
+  <?php
+    // FIX #2: Cache unpaid count di session — hindari query berat di setiap halaman
+    // Cache di-invalidate otomatis jika user klik bayar/upload (lihat data.php)
+    if (!isset($_SESSION['_unpaid_count_cache'])) {
+        $unpaid = 0;
+        if (using_database()) {
+            $user = current_user();
+            $row = db_one(
+                "SELECT COUNT(*) AS total FROM payment pay
+                 LEFT JOIN pesanan ps ON ps.id_pesanan = pay.id_pesanan
+                 LEFT JOIN reservasi rsv ON rsv.id_reservasi = pay.id_reservasi
+                 WHERE pay.status_payment = 'pending'
+                   AND pay.bukti_tf IS NULL
+                   AND COALESCE(ps.id_pelanggan, rsv.id_pelanggan) = ?",
+                [(int)$user['id']]
+            );
+            $unpaid = $row ? (int)$row['total'] : 0;
+        } else {
+            foreach (get_payments(false) as $p) {
+                if ($p['status'] === 'pending' && !payment_has_receipt($p)) {
+                    $unpaid++;
+                }
+            }
         }
+        $_SESSION['_unpaid_count_cache'] = $unpaid;
     }
-    if ($unpaid > 0): 
+    $unpaid = $_SESSION['_unpaid_count_cache'];
+    if ($unpaid > 0):
   ?>
   <div class="container mt-4">
     <div class="alert alert-warning border-warning shadow-sm d-flex align-items-center justify-content-between">
@@ -88,6 +108,7 @@
   </div>
   <?php endif; ?>
 <?php endif; ?>
+
 
 <?php if (!empty($_SESSION['_open_login_modal'])): ?>
   <?php unset($_SESSION['_open_login_modal']); ?>

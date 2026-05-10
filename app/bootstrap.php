@@ -7,7 +7,8 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 init_demo_state();
-auto_expire_past_reservations(); // FIX: expire reservasi masa lalu otomatis tiap request
+auto_expire_past_reservations(); // FIX #22: throttle ke max 1x/menit via session cache
+// (fungsi sudah handle throttle di dalam)
 
 $route = request_route();
 $method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
@@ -25,16 +26,30 @@ function handle_post($route)
     }
 
     if ($route === 'login') {
-        $email = trim(isset($_POST['email']) ? $_POST['email'] : '');
+        $email    = trim(isset($_POST['email']) ? $_POST['email'] : '');
         $password = trim(isset($_POST['password']) ? $_POST['password'] : '');
+        // FIX #10: Cek rate limit sebelum proses autentikasi
+        $rateError = check_login_rate_limit($email);
+        if ($rateError) {
+            set_flash('danger', $rateError);
+            redirect_to('home');
+        }
         $result = authenticate_user($email, $password);
         if (!empty($result['ok'])) {
+            reset_login_rate_limit($email); // Reset counter jika berhasil login
             $_SESSION['user'] = $result['user'];
             set_flash('success', 'Login berhasil. Selamat datang, ' . $result['user']['name'] . '.');
+            // FIX #15: Redirect ke halaman tujuan jika ada, bukan selalu ke home
+            $intended = $_SESSION['_intended_url'] ?? '';
+            unset($_SESSION['_intended_url']);
+            if ($intended && $result['user']['role'] !== 'admin') {
+                header('Location: ' . $intended);
+                exit;
+            }
             redirect_to($result['user']['role'] === 'admin' ? 'admin/dashboard' : 'home');
         }
         set_flash('danger', $result['message']);
-        redirect_to('login');
+        redirect_to('home');
     }
 
     if ($route === 'register') {
@@ -77,6 +92,7 @@ function handle_post($route)
         $reservasiId = (int)(isset($_POST['reservasi_id']) ? $_POST['reservasi_id'] : 0);
         $result = upload_booking_receipt($reservasiId);
         flash_result($result);
+        unset($_SESSION['_unpaid_count_cache']); // Invalidate cache tagihan
         redirect_to('reservasi/payment?id=' . $reservasiId);
     }
 
@@ -106,6 +122,7 @@ function handle_post($route)
         $orderId = (int)(isset($_POST['order_id']) ? $_POST['order_id'] : 0);
         $result = upload_payment_receipt($orderId);
         flash_result($result);
+        unset($_SESSION['_unpaid_count_cache']); // Invalidate cache tagihan
         redirect_to(!empty($result['ok']) ? 'riwayat' : 'payment?order_id=' . $orderId);
     }
 
@@ -145,6 +162,7 @@ function handle_post($route)
             }
         }
         set_flash('success', 'Berhasil! Satu bukti transfer telah diterapkan untuk ' . count($unpaid) . ' tagihan Anda.');
+        unset($_SESSION['_unpaid_count_cache']); // Invalidate cache tagihan
         redirect_to('riwayat');
     }
 
@@ -256,6 +274,14 @@ switch ($route) {
         require_login();
         $user = current_user();
         render('customer/payment-bulk', ['current_page' => 'payment', 'unpaidPayments' => get_unpaid_payments_by_user($user['id'])]);
+        break;
+    case 'cek_status':
+        require_login();
+        render('customer/cek_status', [
+            'current_page'  => 'riwayat',
+            'reservations'  => get_reservations(false),
+            'orders'        => get_orders(false),
+        ]);
         break;
     case 'profile':
         require_login();
