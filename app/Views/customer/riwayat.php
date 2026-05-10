@@ -45,6 +45,7 @@ usort($timeline, fn($a, $b) => strcmp($b['created_at'], $a['created_at']));
           $type    = $item['type'];
           $pay     = $item['payment'];
           $payStatus = $pay ? $pay['status'] : 'pending';
+          $hasReceipt = $pay && payment_has_receipt($pay);
         ?>
         <div class="dc-history-item" style="display: flex; flex-direction: column; gap: 8px;">
 
@@ -70,9 +71,17 @@ usort($timeline, fn($a, $b) => strcmp($b['created_at'], $a['created_at']));
               </div>
             </div>
             <div style="border-top: 0.5px solid var(--color-border-tertiary, #e5e5e5); padding-top: 8px;">
-              <?php if ($r['status'] === 'pending' && (!$pay || $payStatus !== 'verified')): ?>
+              <?php if ($payStatus === 'rejected'): ?>
+                <a class="dc-small-link" href="<?= url('reservasi/payment?id=' . $r['id']) ?>">
+                  <i class="fa-solid fa-rotate-right"></i> Upload Ulang Bukti Booking
+                </a>
+              <?php elseif ($r['status'] === 'pending' && (!$pay || !$hasReceipt)): ?>
                 <a class="dc-small-link" href="<?= url('reservasi/payment?id=' . $r['id']) ?>">
                   <i class="fa-solid fa-credit-card"></i> Bayar Booking Fee
+                </a>
+              <?php elseif ($payStatus === 'pending' && $hasReceipt): ?>
+                <a class="dc-small-link" href="<?= url('reservasi/payment?id=' . $r['id']) ?>">
+                  <i class="fa-solid fa-clock"></i> Bukti booking menunggu verifikasi
                 </a>
               <?php elseif ($r['status'] === 'confirmed'): ?>
                 <a class="dc-small-link" href="<?= url('pesan?jenis=reservasi&reservasi_id=' . $r['id']) ?>">

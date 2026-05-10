@@ -8,7 +8,13 @@
       <tr>
         <td><?= e($p['kode']) ?></td>
         <td><?= e($p['nama']) ?></td>
-        <td><?= rupiah($p['total']) ?></td>
+        <td>
+          <?= rupiah($p['total']) ?>
+          <?php if (isset($p['grand_total']) && (float)$p['grand_total'] > (float)$p['total']): ?>
+            <br><small>Total pesanan: <?= rupiah($p['grand_total']) ?></small>
+            <br><small>Sisa: <?= rupiah($p['remaining']) ?></small>
+          <?php endif; ?>
+        </td>
         <td>
           <?= e($p['bukti_tf']) ?><br><small><?= e($p['tanggal_upload'] ?: '-') ?></small>
           <?php if (!empty($p['bukti_url'])): ?><br><a href="<?= e($p['bukti_url']) ?>" target="_blank" class="btn btn-sm btn-outline-dark mt-1"><i class="fa-solid fa-eye"></i> Lihat Bukti</a><?php endif; ?>
@@ -17,14 +23,25 @@
         <td><span class="dc-status <?= e($p['status']) ?>"><?= e($p['status']) ?></span></td>
         <td><?= e($p['catatan_admin']) ?></td>
         <td>
-         <form method="POST" action="<?= url($p['tipe'] === 'booking' ? 'admin/booking-payment/verify' : 'admin/payment/verify') ?>" class="dc-verify-form">  <?= csrf_field() ?> 
-            <input type="hidden" name="id" value="<?= e($p['id']) ?>">
-            <input name="catatan_admin" class="form-control form-control-sm mb-2" placeholder="Catatan admin" value="<?= e($p['catatan_admin']) ?>">
-            <div class="d-flex gap-1">
-              <button name="status" value="verified" class="btn btn-sm btn-success" <?= !$hasProof || $p['status'] === 'verified' ? 'disabled' : '' ?>>Verified</button>
-              <button name="status" value="rejected" class="btn btn-sm btn-outline-danger" <?= $p['status'] === 'rejected' ? 'disabled' : '' ?> onclick="return confirm('Reject payment ini? Pesanan akan dibatalkan dan stok dikembalikan.')">Rejected</button>
-            </div>
-          </form>
+          <?php if ($p['tipe'] === 'pelunasan'): ?>
+            <span class="text-muted small">Pelunasan tercatat</span>
+          <?php else: ?>
+            <form method="POST" action="<?= url($p['tipe'] === 'booking' ? 'admin/booking-payment/verify' : 'admin/payment/verify') ?>" class="dc-verify-form">  <?= csrf_field() ?> 
+              <input type="hidden" name="id" value="<?= e($p['id']) ?>">
+              <input name="catatan_admin" class="form-control form-control-sm mb-2" placeholder="Catatan admin" value="<?= e($p['catatan_admin']) ?>">
+              <div class="d-flex gap-1">
+                <button name="status" value="verified" class="btn btn-sm btn-success" <?= !$hasProof || $p['status'] === 'verified' ? 'disabled' : '' ?>>Verified</button>
+                <button name="status" value="rejected" class="btn btn-sm btn-outline-danger" <?= $p['status'] === 'rejected' ? 'disabled' : '' ?> onclick="return confirm('Reject payment ini? Pesanan akan dibatalkan dan stok dikembalikan.')">Rejected</button>
+              </div>
+            </form>
+            <?php if ($p['status'] === 'verified' && !empty($p['remaining']) && (float)$p['remaining'] > 0): ?>
+              <form method="POST" action="<?= url('admin/payment/settle') ?>" class="mt-2" onsubmit="return confirm('Catat pelunasan sisa sebesar <?= e(rupiah($p['remaining'])) ?>?')">
+                <?= csrf_field() ?>
+                <input type="hidden" name="id" value="<?= e($p['id']) ?>">
+                <button class="btn btn-sm btn-primary w-100">Lunasi Sisa</button>
+              </form>
+            <?php endif; ?>
+          <?php endif; ?>
         </td>
       </tr>
     <?php endforeach; ?>

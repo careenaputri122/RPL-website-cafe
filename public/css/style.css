@@ -121,6 +121,7 @@ a { text-decoration: none; }
 .dc-time-grid { display:grid; grid-template-columns: repeat(5, 1fr); gap:.75rem; }
 .dc-time-btn { border:1px solid var(--border); border-radius:12px; background:#fff; padding:.75rem; font-weight:800; color:#374151; }
 .dc-time-btn.selected { background:var(--gold); color:#fff; border-color:var(--gold); }
+.dc-time-btn:disabled { opacity:.45; cursor:not-allowed; background:#f3f4f6; color:#9ca3af; text-decoration:line-through; }
 .dc-summary-card, .dc-cart-card { padding:1.5rem; top:96px; }
 .dc-summary-card ul { list-style:none; padding:0; margin:1rem 0; display:grid; gap:.75rem; color:#6b7280; }
 .dc-summary-card li i { color:var(--gold); width:20px; }
@@ -159,6 +160,7 @@ a { text-decoration: none; }
 .dc-status.pending { background:#fef3c7; color:#92400e; }
 .dc-status.verified, .dc-status.confirmed, .dc-status.tersedia { background:#dcfce7; color:#166534; }
 .dc-status.rejected, .dc-status.cancelled, .dc-status.terisi { background:#fee2e2; color:#991b1b; }
+.dc-status.nonaktif { background:#e5e7eb; color:#374151; }
 .dc-status.reserved { background:#fef3c7; color:#92400e; }
 .dc-bank-box { background:#111827; color:#fff; border-radius:22px; padding:1.5rem; margin:1rem 0; }
 .dc-bank-box span { color:#fbbf24; font-weight:900; }

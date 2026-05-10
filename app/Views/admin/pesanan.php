@@ -4,14 +4,14 @@
     <div><h4 class="mb-1">Semua Pesanan</h4><p class="text-muted mb-0">Alur: pending &rarr; diproses &rarr; selesai / dibatalkan.</p></div>
   </div>
   <div class="table-responsive mt-3"><table class="table dc-table align-middle"><thead><tr><th>Kode</th><th>Pelanggan</th><th>Jenis</th><th>Meja</th><th>Item</th><th>Total</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
-    <?php foreach ($orders as $o): $payment = find_payment_by_order($o['id']); ?>
+    <?php foreach ($orders as $o): $payment = find_payment_by_order($o['id']); $paidTotal = isset($o['paid_total']) ? (float)$o['paid_total'] : (float)$o['deposit']; $remaining = isset($o['remaining']) ? (float)$o['remaining'] : max(0, (float)$o['total'] - $paidTotal); ?>
       <tr>
         <td><?= e($o['kode']) ?><br><small><?= e($o['created_at']) ?></small></td>
         <td><?= e($o['nama']) ?><br><small><?= e($o['email']) ?></small></td>
         <td><?= e($o['jenis']) ?></td>
         <td><?= e($o['no_meja']) ?></td>
         <td><?php foreach ($o['items'] as $it): ?><span class="dc-chip"><?= e($it['nama']) ?> x<?= e($it['qty']) ?></span><?php endforeach; ?></td>
-        <td><?= rupiah($o['total']) ?><br><small>Tagihan: <?= rupiah($o['deposit']) ?></small></td>
+        <td><?= rupiah($o['total']) ?><br><small>Dibayar: <?= rupiah($paidTotal) ?></small><br><small>Sisa: <?= rupiah($remaining) ?></small></td>
         <td><span class="dc-status <?= e($o['status']) ?>"><?= e($o['status']) ?></span><?php if ($payment): ?><br><small>Payment: </small><span class="dc-status <?= e($payment['status']) ?>"><?= e($payment['status']) ?></span><?php endif; ?></td>
         <td>
           <?php if ($o['status'] !== 'dibatalkan' && $o['status'] !== 'selesai'): ?>

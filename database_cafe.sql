@@ -79,7 +79,7 @@ CREATE TABLE meja (
     id_meja INT AUTO_INCREMENT PRIMARY KEY,
     no_meja VARCHAR(10) NOT NULL UNIQUE,
     kapasitas INT NOT NULL,
-    status ENUM('tersedia', 'terisi') NOT NULL DEFAULT 'tersedia',
+    status ENUM('tersedia', 'terisi', 'nonaktif') NOT NULL DEFAULT 'tersedia',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -108,7 +108,7 @@ CREATE TABLE reservasi (
     tanggal DATE NOT NULL,
     jam TIME NOT NULL,
     jumlah_orang INT NOT NULL,
-    status_reservasi ENUM('pending', 'confirmed', 'cancelled') NOT NULL DEFAULT 'pending',
+    status_reservasi ENUM('pending', 'confirmed', 'cancelled', 'expired') NOT NULL DEFAULT 'pending',
     biaya_booking DECIMAL(10,2) NOT NULL DEFAULT 15000,
     catatan TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -172,7 +172,7 @@ CREATE TABLE payment (
     id_pesanan INT DEFAULT NULL,
     id_reservasi INT DEFAULT NULL,
     id_admin INT DEFAULT NULL,
-    tipe ENUM('pesanan', 'booking') NOT NULL DEFAULT 'pesanan',
+    tipe ENUM('pesanan', 'booking', 'pelunasan') NOT NULL DEFAULT 'pesanan',
     jumlah DECIMAL(10,2) NOT NULL DEFAULT 0,
     bukti_tf VARCHAR(255) DEFAULT NULL,
     tanggal_upload DATETIME DEFAULT NULL,

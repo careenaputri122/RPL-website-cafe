@@ -20,7 +20,7 @@ $selectedReservation = isset($_GET['reservasi_id']) ? (int)$_GET['reservasi_id']
       <?php $oldTable = old('no_meja', ''); foreach ($tables as $t): ?>
         <button type="button" class="dc-table-seat <?= e($t['status']) ?> <?= $t['no_meja'] === $oldTable ? 'selected' : '' ?>" data-table="<?= e($t['no_meja']) ?>" <?= $t['status'] !== 'tersedia' && $t['no_meja'] !== $oldTable ? 'disabled' : '' ?>><strong><?= e($t['no_meja']) ?></strong><span><?= e($t['kapasitas']) ?> org</span><small><?= e(ucfirst($t['status'])) ?></small></button>
       <?php endforeach; ?>
-    </div><div class="dc-legend"><span><i class="ok"></i> Tersedia</span><span><i class="bad"></i> Terisi</span></div></div>
+    </div><div class="dc-legend"><span><i class="ok"></i> Tersedia</span><span><i class="bad"></i> Terisi</span><span><i class="warn"></i> Reserved</span></div></div>
 
     <div class="dc-panel mb-4" id="reservationPanel" style="<?= $jenisAktif === 'reservasi' ? '' : 'display:none;' ?>">
       <div class="d-flex align-items-center justify-content-between flex-wrap gap-3">
