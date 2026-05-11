@@ -16,12 +16,44 @@
           <li><i class="fa-solid fa-note-sticky me-2 text-muted"></i> <?= e($reservation['catatan']) ?></li>
           <?php endif; ?>
         </ul>
-        <div class="dc-total-line mt-4">
-          <span>Biaya Booking</span>
-          <strong><?= rupiah(isset($reservation['biaya_booking']) ? $reservation['biaya_booking'] : 15000) ?></strong>
+
+        <?php
+          // Hitung rincian pembayaran
+          $biayaBooking  = (float)($reservation['biaya_booking'] ?? 15000);
+          // Jika booking_payment sudah ada, ambil total dari DB (booking fee + DP pre-order)
+          $totalBayar    = $booking_payment ? (float)$booking_payment['total'] : $biayaBooking;
+          $dpPreorder    = max(0, $totalBayar - $biayaBooking);
+          $adaPreorder   = $dpPreorder > 0;
+        ?>
+
+        <hr class="my-3">
+        <div class="dc-total-line">
+          <span>Biaya Booking Meja</span>
+          <strong><?= rupiah($biayaBooking) ?></strong>
         </div>
-        <p class="small text-muted mt-2 mb-0">Biaya booking dibayar sekali untuk mengkonfirmasi reservasi. Jika ingin pre-order menu, bisa dilakukan setelah reservasi dikonfirmasi.</p>
+        <?php if ($adaPreorder): ?>
+        <div class="dc-total-line text-muted small">
+          <span>DP Pre-order Menu (50%)</span>
+          <strong><?= rupiah($dpPreorder) ?></strong>
+        </div>
+        <?php endif; ?>
+        <div class="dc-total-line mt-2 p-2 bg-light rounded">
+          <strong>Total Bayar Sekarang</strong>
+          <strong class="text-primary fs-5"><?= rupiah($totalBayar) ?></strong>
+        </div>
+
+        <p class="small text-muted mt-2 mb-0">
+          <?php if ($adaPreorder): ?>
+            <i class="fa-solid fa-circle-info me-1"></i>
+            Total sudah mencakup booking fee <strong><?= rupiah($biayaBooking) ?></strong>
+            dan DP 50% pre-order menu <strong><?= rupiah($dpPreorder) ?></strong>.
+            Sisa pembayaran menu dilunasi saat kedatangan.
+          <?php else: ?>
+            Biaya booking dibayar sekali untuk mengkonfirmasi reservasi Anda.
+          <?php endif; ?>
+        </p>
       </div>
+
     </div>
     <div class="col-lg-5">
       <div class="dc-panel">
@@ -36,7 +68,8 @@
         <?php elseif ($booking_payment && $booking_payment['status'] === 'verified'): ?>
   <div class="alert alert-success mt-3"><i class="fa-solid fa-circle-check me-2"></i>Booking fee sudah terverifikasi. Reservasi Anda telah dikonfirmasi.</div>
   <p class="small text-muted mt-2 mb-3">Mau pre-order menu sekarang atau langsung pesan saat datang?</p>
-  <a href="<?= url('pesan') ?>" class="btn dc-btn-submit w-100 mb-2">
+  <?php /* FIX LOG-04: sertakan reservasi_id & jenis agar halaman pesan langsung pre-select reservasi */ ?>
+  <a href="<?= url('pesan?jenis=reservasi&reservasi_id=' . (int)$reservation['id']) ?>" class="btn dc-btn-submit w-100 mb-2">
     <i class="fa-solid fa-utensils me-2"></i>Ya, Pre-order Menu Sekarang
   </a>
   <a href="<?= url('riwayat') ?>" class="btn btn-outline-secondary w-100">

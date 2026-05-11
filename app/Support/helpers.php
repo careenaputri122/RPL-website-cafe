@@ -190,10 +190,12 @@ function check_login_rate_limit($email) {
         unset($_SESSION[$key], $_SESSION[$timeKey]);
     }
 
-    $_SESSION[$key] = ($_SESSION[$key] ?? 0) + 1;
+    // FIX BUG-03: inisialisasi window SEBELUM increment,
+    // agar hitungan percobaan mulai dari 1 dan batas 5x benar-benar 5x
     if (!isset($_SESSION[$timeKey])) {
         $_SESSION[$timeKey] = $now;
     }
+    $_SESSION[$key] = ($_SESSION[$key] ?? 0) + 1;
 
     if ($_SESSION[$key] > $maxAttempts) {
         $wait = $window - ($now - $_SESSION[$timeKey]);

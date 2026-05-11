@@ -49,6 +49,8 @@ function handle_post($route)
             redirect_to($result['user']['role'] === 'admin' ? 'admin/dashboard' : 'home');
         }
         set_flash('danger', $result['message']);
+        // FIX LOG-03: buka kembali login modal agar user tidak bingung
+        $_SESSION['_open_login_modal'] = true;
         redirect_to('home');
     }
 
@@ -146,8 +148,17 @@ function handle_post($route)
         }
 
         if (using_database()) {
+            // FIX POT-04: hapus file bukti lama agar tidak ada kebocoran file di disk
+            $oldFiles = [];
             foreach ($unpaid as $p) {
+                $old = db_one('SELECT bukti_tf FROM payment WHERE id_payment = ? LIMIT 1', [(int)$p['id']]);
+                if ($old && !empty($old['bukti_tf']) && $old['bukti_tf'] !== $filePath) {
+                    $oldFiles[] = $old['bukti_tf'];
+                }
                 db_exec("UPDATE payment SET bukti_tf = ?, status_payment = 'pending', tanggal_upload = NOW() WHERE id_payment = ?", [$filePath, $p['id']]);
+            }
+            foreach (array_unique($oldFiles) as $oldFile) {
+                delete_uploaded_file_if_local($oldFile);
             }
         } else {
             foreach ($unpaid as $p) {
@@ -294,9 +305,9 @@ switch ($route) {
         render_auth('auth/register', ['page_title' => 'Daftar']);
         break;
     case 'logout':
-        unset($_SESSION['user']);
-        session_regenerate_id(true);
-        set_flash('success', 'Anda berhasil logout.');
+        // FIX LOG-01: GET logout rentan CSRF — logout hanya boleh via POST + CSRF token
+        // (form logout di header.php sudah pakai POST). Redirect saja tanpa aksi.
+        set_flash('warning', 'Untuk keamanan, gunakan tombol Keluar di menu akun.');
         redirect_to('home');
         break;
     case 'admin':
