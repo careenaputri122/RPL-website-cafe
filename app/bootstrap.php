@@ -7,7 +7,8 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 init_demo_state();
-auto_expire_past_reservations();
+auto_expire_past_reservations(); // FIX #22: throttle ke max 1x/menit via session cache
+// (fungsi sudah handle throttle di dalam)
 
 $route = request_route();
 $method = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
@@ -25,16 +26,32 @@ function handle_post($route)
     }
 
     if ($route === 'login') {
-        $email    = trim(isset($_POST['email'])    ? $_POST['email']    : '');
+        $email    = trim(isset($_POST['email']) ? $_POST['email'] : '');
         $password = trim(isset($_POST['password']) ? $_POST['password'] : '');
-        $result   = authenticate_user($email, $password);
+        // FIX #10: Cek rate limit sebelum proses autentikasi
+        $rateError = check_login_rate_limit($email);
+        if ($rateError) {
+            set_flash('danger', $rateError);
+            redirect_to('home');
+        }
+        $result = authenticate_user($email, $password);
         if (!empty($result['ok'])) {
+            reset_login_rate_limit($email); // Reset counter jika berhasil login
             $_SESSION['user'] = $result['user'];
             set_flash('success', 'Login berhasil. Selamat datang, ' . $result['user']['name'] . '.');
+            // FIX #15: Redirect ke halaman tujuan jika ada, bukan selalu ke home
+            $intended = $_SESSION['_intended_url'] ?? '';
+            unset($_SESSION['_intended_url']);
+            if ($intended && $result['user']['role'] !== 'admin') {
+                header('Location: ' . $intended);
+                exit;
+            }
             redirect_to($result['user']['role'] === 'admin' ? 'admin/dashboard' : 'home');
         }
         set_flash('danger', $result['message']);
-        redirect_to('login');
+        // FIX LOG-03: buka kembali login modal agar user tidak bingung
+        $_SESSION['_open_login_modal'] = true;
+        redirect_to('home');
     }
 
     if ($route === 'register') {
@@ -75,25 +92,19 @@ function handle_post($route)
     if ($route === 'reservasi/payment/upload') {
         require_login();
         $reservasiId = (int)(isset($_POST['reservasi_id']) ? $_POST['reservasi_id'] : 0);
-        $result      = upload_booking_receipt($reservasiId);
+        $result = upload_booking_receipt($reservasiId);
         flash_result($result);
+        unset($_SESSION['_unpaid_count_cache']); // Invalidate cache tagihan
         redirect_to('reservasi/payment?id=' . $reservasiId);
     }
 
     if ($route === 'admin/booking-payment/verify') {
         require_admin();
         $result = verify_booking_payment(
-            isset($_POST['id'])             ? $_POST['id']             : 0,
-            isset($_POST['status'])         ? $_POST['status']         : 'verified',
-            isset($_POST['catatan_admin'])   ? $_POST['catatan_admin']  : ''
+            isset($_POST['id']) ? $_POST['id'] : 0,
+            isset($_POST['status']) ? $_POST['status'] : 'verified',
+            isset($_POST['catatan_admin']) ? $_POST['catatan_admin'] : ''
         );
-        flash_result($result);
-        redirect_to('admin/payment');
-    }
-
-    if ($route === 'admin/payment/settle') {
-        require_admin();
-        $result = settle_remaining_payment(isset($_POST['id']) ? $_POST['id'] : 0);
         flash_result($result);
         redirect_to('admin/payment');
     }
@@ -111,14 +122,15 @@ function handle_post($route)
     if ($route === 'payment/upload') {
         require_login();
         $orderId = (int)(isset($_POST['order_id']) ? $_POST['order_id'] : 0);
-        $result  = upload_payment_receipt($orderId);
+        $result = upload_payment_receipt($orderId);
         flash_result($result);
+        unset($_SESSION['_unpaid_count_cache']); // Invalidate cache tagihan
         redirect_to(!empty($result['ok']) ? 'riwayat' : 'payment?order_id=' . $orderId);
     }
 
     if ($route === 'payment/bulk/upload') {
         require_login();
-        $user   = current_user();
+        $user = current_user();
         $unpaid = get_unpaid_payments_by_user($user['id']);
         if (empty($unpaid)) {
             set_flash('warning', 'Tidak ada tagihan tertunda.');
@@ -136,22 +148,32 @@ function handle_post($route)
         }
 
         if (using_database()) {
+            // FIX POT-04: hapus file bukti lama agar tidak ada kebocoran file di disk
+            $oldFiles = [];
             foreach ($unpaid as $p) {
+                $old = db_one('SELECT bukti_tf FROM payment WHERE id_payment = ? LIMIT 1', [(int)$p['id']]);
+                if ($old && !empty($old['bukti_tf']) && $old['bukti_tf'] !== $filePath) {
+                    $oldFiles[] = $old['bukti_tf'];
+                }
                 db_exec("UPDATE payment SET bukti_tf = ?, status_payment = 'pending', tanggal_upload = NOW() WHERE id_payment = ?", [$filePath, $p['id']]);
+            }
+            foreach (array_unique($oldFiles) as $oldFile) {
+                delete_uploaded_file_if_local($oldFile);
             }
         } else {
             foreach ($unpaid as $p) {
                 foreach ($_SESSION['payments'] as $idx => $sp) {
                     if ((int)$sp['id'] === (int)$p['id']) {
-                        $_SESSION['payments'][$idx]['bukti_tf']       = $filePath;
-                        $_SESSION['payments'][$idx]['bukti_url']      = asset($filePath);
-                        $_SESSION['payments'][$idx]['status']         = 'pending';
+                        $_SESSION['payments'][$idx]['bukti_tf'] = $filePath;
+                        $_SESSION['payments'][$idx]['bukti_url'] = asset($filePath);
+                        $_SESSION['payments'][$idx]['status'] = 'pending';
                         $_SESSION['payments'][$idx]['tanggal_upload'] = date('Y-m-d H:i:s');
                     }
                 }
             }
         }
         set_flash('success', 'Berhasil! Satu bukti transfer telah diterapkan untuk ' . count($unpaid) . ' tagihan Anda.');
+        unset($_SESSION['_unpaid_count_cache']); // Invalidate cache tagihan
         redirect_to('riwayat');
     }
 
@@ -178,10 +200,7 @@ function handle_post($route)
 
     if ($route === 'admin/reservasi/status') {
         require_admin();
-        $result = update_reservation_status(
-            isset($_POST['id'])     ? $_POST['id']     : 0,
-            isset($_POST['status']) ? $_POST['status'] : 'pending'
-        );
+        $result = update_reservation_status(isset($_POST['id']) ? $_POST['id'] : 0, isset($_POST['status']) ? $_POST['status'] : 'pending');
         flash_result($result);
         redirect_to('admin/reservasi');
     }
@@ -195,21 +214,14 @@ function handle_post($route)
 
     if ($route === 'admin/pesanan/status') {
         require_admin();
-        $result = update_order_status(
-            isset($_POST['id'])     ? $_POST['id']     : 0,
-            isset($_POST['status']) ? $_POST['status'] : 'pending'
-        );
+        $result = update_order_status(isset($_POST['id']) ? $_POST['id'] : 0, isset($_POST['status']) ? $_POST['status'] : 'pending');
         flash_result($result);
         redirect_to('admin/pesanan');
     }
 
     if ($route === 'admin/payment/verify') {
         require_admin();
-        $result = verify_payment(
-            isset($_POST['id'])             ? $_POST['id']            : 0,
-            isset($_POST['status'])         ? $_POST['status']        : 'verified',
-            isset($_POST['catatan_admin'])   ? $_POST['catatan_admin'] : ''
-        );
+        $result = verify_payment(isset($_POST['id']) ? $_POST['id'] : 0, isset($_POST['status']) ? $_POST['status'] : 'verified', isset($_POST['catatan_admin']) ? $_POST['catatan_admin'] : '');
         flash_result($result);
         redirect_to('admin/payment');
     }
@@ -234,180 +246,103 @@ if ($route === 'api/meja-availability') {
 switch ($route) {
     case 'home':
     case '':
-        render('customer/home', [
-            'current_page' => 'home',
-            'menus'        => get_featured_menus(6),
-            'testimonials' => default_testimonials(),
-        ]);
+        render('customer/home', ['current_page' => 'home', 'menus' => get_featured_menus(6), 'testimonials' => default_testimonials()]);
         break;
-
     case 'menu':
-        render('customer/menu', [
-            'current_page' => 'menu',
-            'menus'        => get_menus(),
-        ]);
+        render('customer/menu', ['current_page' => 'menu', 'menus' => get_menus()]);
         break;
-
     case 'reservasi':
         require_login();
         render('customer/reservasi', [
             'current_page' => 'reservasi',
-            'tables'       => get_tables_with_availability(date('Y-m-d'), '19:00'),
-            'menus'        => get_menus(),
+            'tables' => get_tables_with_availability(date('Y-m-d'), '19:00'),
+            'menus' => get_menus()
         ]);
         break;
-
     case 'pesan':
         require_login();
-        render('customer/pesan', [
-            'current_page' => 'pesan',
-            'menus'        => get_menus(),
-            'tables'       => get_dine_in_tables(date('Y-m-d'), date('H:i')),
-            'reservations' => get_reservations(false),
-            'orders'       => get_orders(false),
-        ]);
+        render('customer/pesan', ['current_page' => 'pesan', 'menus' => get_menus(), 'tables' => get_tables(), 'reservations' => get_reservations(false), 'orders' => get_orders(false)]);
         break;
-
     case 'riwayat':
         require_login();
-        render('customer/riwayat', [
-            'current_page' => 'riwayat',
-            'reservations' => get_reservations(false),
-            'orders'       => get_orders(false),
-            'payments'     => get_payments(false),
-        ]);
+        render('customer/riwayat', ['current_page' => 'riwayat', 'reservations' => get_reservations(false), 'orders' => get_orders(false), 'payments' => get_payments(false)]);
         break;
-
     case 'payment':
         require_login();
         $orderId = (int)(isset($_GET['order_id']) ? $_GET['order_id'] : 0);
-        render('customer/payment', [
-            'current_page' => 'payment',
-            'order'        => find_order($orderId),
-            'payment'      => find_payment_by_order($orderId),
-        ]);
+        render('customer/payment', ['current_page' => 'payment', 'order' => find_order($orderId), 'payment' => find_payment_by_order($orderId)]);
         break;
-
     case 'reservasi/payment':
         require_login();
         $rsvId = (int)(isset($_GET['id']) ? $_GET['id'] : 0);
-        $reservationOrders = array_values(array_filter(get_orders(false), function ($order) use ($rsvId) {
-            return (int)(isset($order['reservation_id']) ? $order['reservation_id'] : 0) === $rsvId;
-        }));
         render('customer/reservasi_payment', [
-            'current_page'    => 'reservasi',
-            'reservation'     => find_reservation($rsvId, false),
+            'current_page' => 'reservasi',
+            'reservation' => find_reservation($rsvId, false),
             'booking_payment' => find_payment_by_reservation($rsvId),
-            'reservation_orders' => $reservationOrders,
         ]);
         break;
-
     case 'payment/bulk':
         require_login();
         $user = current_user();
-        render('customer/payment-bulk', [
-            'current_page'   => 'payment',
-            'unpaidPayments' => get_unpaid_payments_by_user($user['id']),
+        render('customer/payment-bulk', ['current_page' => 'payment', 'unpaidPayments' => get_unpaid_payments_by_user($user['id'])]);
+        break;
+    case 'cek_status':
+        require_login();
+        render('customer/cek_status', [
+            'current_page'  => 'riwayat',
+            'reservations'  => get_reservations(false),
+            'orders'        => get_orders(false),
         ]);
         break;
-
     case 'profile':
         require_login();
         render('customer/profile', ['current_page' => 'profile']);
         break;
-
     case 'login':
         render_auth('auth/login', ['page_title' => 'Login']);
         break;
-
     case 'register':
         render_auth('auth/register', ['page_title' => 'Daftar']);
         break;
-
     case 'logout':
-        unset($_SESSION['user']);
-        session_regenerate_id(true);
-        set_flash('success', 'Anda berhasil logout.');
+        // FIX LOG-01: GET logout rentan CSRF — logout hanya boleh via POST + CSRF token
+        // (form logout di header.php sudah pakai POST). Redirect saja tanpa aksi.
+        set_flash('warning', 'Untuk keamanan, gunakan tombol Keluar di menu akun.');
         redirect_to('home');
         break;
-
     case 'admin':
     case 'admin/dashboard':
-        render_admin('admin/dashboard', [
-            'current_admin_page' => 'admin/dashboard',
-            'stats'              => dashboard_stats(),
-            'payments'           => get_payments(true),
-            'reservations'       => get_reservations(true),
-        ]);
+        render_admin('admin/dashboard', ['current_admin_page' => 'admin/dashboard', 'stats' => dashboard_stats(), 'payments' => get_payments(true), 'reservations' => get_reservations(true)]);
         break;
-
     case 'admin/menu':
-        render_admin('admin/menu', [
-            'current_admin_page' => 'admin/menu',
-            'menus'              => get_menus(),
-        ]);
+        render_admin('admin/menu', ['current_admin_page' => 'admin/menu', 'menus' => get_menus()]);
         break;
-
     case 'admin/meja':
-        render_admin('admin/meja', [
-            'current_admin_page' => 'admin/meja',
-            'tables'             => get_tables(), // sengaja get_tables() — ini halaman manajemen fisik meja
-        ]);
+        render_admin('admin/meja', ['current_admin_page' => 'admin/meja', 'tables' => get_tables()]);
         break;
-
     case 'admin/reservasi':
-        $reservationFilters = [
-            'tanggal' => isset($_GET['tanggal']) ? trim($_GET['tanggal']) : '',
-            'status'  => isset($_GET['status'])  ? trim($_GET['status'])  : '',
-        ];
-        render_admin('admin/reservasi', [
-            'current_admin_page' => 'admin/reservasi',
-            'reservations'       => get_reservations(true, $reservationFilters),
-            'filters'            => $reservationFilters,
-        ]);
+        render_admin('admin/reservasi', ['current_admin_page' => 'admin/reservasi', 'reservations' => get_reservations(true)]);
         break;
-
     case 'admin/reservasi/detail':
         $reservationId = (int)(isset($_GET['id']) ? $_GET['id'] : 0);
-        render_admin('admin/reservasi_detail', [
-            'current_admin_page' => 'admin/reservasi',
-            'detail'             => get_reservation_detail($reservationId),
-        ]);
+        render_admin('admin/reservasi_detail', ['current_admin_page' => 'admin/reservasi', 'detail' => get_reservation_detail($reservationId)]);
         break;
-
     case 'admin/pesanan':
-        render_admin('admin/pesanan', [
-            'current_admin_page' => 'admin/pesanan',
-            'orders'             => get_orders(true),
-        ]);
+        render_admin('admin/pesanan', ['current_admin_page' => 'admin/pesanan', 'orders' => get_orders(true)]);
         break;
-
     case 'admin/payment':
-        render_admin('admin/payment', [
-            'current_admin_page' => 'admin/payment',
-            'payments'           => get_all_payments_for_admin(),
-        ]);
+        render_admin('admin/payment', ['current_admin_page' => 'admin/payment', 'payments' => get_all_payments_for_admin()]);
         break;
-
     case 'admin/laporan':
         $start = isset($_GET['start']) ? $_GET['start'] : date('Y-m-01');
         $end   = isset($_GET['end'])   ? $_GET['end']   : date('Y-m-d');
         $jenis = isset($_GET['jenis']) ? $_GET['jenis'] : '';
-        render_admin('admin/laporan', [
-            'current_admin_page' => 'admin/laporan',
-            'report'             => sales_report($start, $end, $jenis),
-        ]);
+        render_admin('admin/laporan', ['current_admin_page' => 'admin/laporan', 'report' => sales_report($start, $end, $jenis)]);
         break;
-
     case 'admin/profile':
         render_admin('admin/profile', ['current_admin_page' => 'admin/profile']);
         break;
-
     default:
         http_response_code(404);
-        render('customer/404', [
-            'current_page' => '404',
-            'route'        => $route,
-            'hide_cta'     => true,
-        ]);
+        render('customer/404', ['current_page' => '404', 'route' => $route, 'hide_cta' => true]);
 }

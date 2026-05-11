@@ -1,4 +1,15 @@
+Options -MultiViews -Indexes
 RewriteEngine On
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
+
+# Izinkan akses langsung ke file statis (CSS, JS, gambar, uploads)
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+
+# Semua request lain diteruskan ke index.php
 RewriteRule ^ index.php [QSA,L]
+
+# Keamanan: blokir akses ke file sensitif
+<FilesMatch "\.(sql|log|env|bak|git)$">
+    Require all denied
+</FilesMatch>
