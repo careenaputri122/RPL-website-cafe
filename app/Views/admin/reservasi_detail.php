@@ -20,8 +20,9 @@
     <h4>Pesanan Pre-order Terkait</h4>
     <?php if (!count($detail['orders'])): ?><div class="alert alert-light border mb-0">Belum ada pre-order yang terhubung dengan reservasi ini.</div><?php endif; ?>
     <?php foreach ($detail['orders'] as $o): $p = isset($o['payment']) ? $o['payment'] : null; ?>
+      <?php $paidTotal = isset($o['paid_total']) ? (float)$o['paid_total'] : (float)$o['deposit']; $remaining = isset($o['remaining']) ? (float)$o['remaining'] : max(0, (float)$o['total'] - $paidTotal); ?>
       <div class="border rounded-4 p-3 mb-3">
-        <div class="d-flex justify-content-between flex-wrap gap-2 mb-2"><div><strong><?= e($o['kode']) ?></strong><p class="mb-0 text-muted"><?= e($o['jenis']) ?> - <?= rupiah($o['total']) ?> - Tagihan <?= rupiah($o['deposit']) ?></p></div><div class="text-end"><span class="dc-status <?= e($o['status']) ?>"><?= e($o['status']) ?></span><?php if ($p): ?><br><span class="dc-status <?= e($p['status']) ?>"><?= e($p['status']) ?></span><?php endif; ?></div></div>
+        <div class="d-flex justify-content-between flex-wrap gap-2 mb-2"><div><strong><?= e($o['kode']) ?></strong><p class="mb-0 text-muted"><?= e($o['jenis']) ?> - Total <?= rupiah($o['total']) ?> - Dibayar <?= rupiah($paidTotal) ?> - Sisa <?= rupiah($remaining) ?></p></div><div class="text-end"><span class="dc-status <?= e($o['status']) ?>"><?= e($o['status']) ?></span><?php if ($p): ?><br><span class="dc-status <?= e($p['status']) ?>"><?= e($p['status']) ?></span><?php endif; ?></div></div>
         <div class="mb-2"><?php foreach ($o['items'] as $it): ?><span class="dc-chip"><?= e($it['nama']) ?> x<?= e($it['qty']) ?></span><?php endforeach; ?></div>
         <?php if ($p): ?>
           <small class="text-muted">Bukti transfer: <?= e($p['bukti_tf']) ?></small>

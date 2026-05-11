@@ -8,7 +8,7 @@
       Ketika pesanan selesai atau dibatalkan, meja langsung kembali tersedia.<br>
       <strong>Reservasi:</strong> Ketersediaan meja untuk reservasi dikelola via sistem <em>time-overlap</em> — terpisah dari status dine-in di atas.
       Pelanggan yang reservasi tidak memblokir meja dari dine-in, dan sebaliknya.<br>
-      <em>Field "Status" di form berikut hanya untuk keperluan khusus (misal: meja maintenance).</em>
+      <em>Gunakan status <strong>nonaktif</strong> untuk meja rusak/maintenance agar tidak muncul untuk reservasi baru.</em>
     </p>
   </div>
 </div>
@@ -26,7 +26,9 @@
         <select name="status" id="tableStatus" class="form-select dc-input mb-3">
           <option value="tersedia">tersedia</option>
           <option value="terisi">terisi</option>
+          <option value="nonaktif">nonaktif</option>
         </select>
+        <small class="text-muted d-block mb-3">Gunakan nonaktif untuk meja rusak/maintenance agar tidak muncul untuk reservasi baru.</small>
         <button class="btn dc-btn-submit w-100">Simpan Meja</button>
       </form>
     </div>
@@ -52,4 +54,3 @@
     </div>
   </div>
 </div>
-

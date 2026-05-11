@@ -84,7 +84,11 @@ document.addEventListener('DOMContentLoaded', function () {
   }
   if (reservationSelect) reservationSelect.addEventListener('change', updateCheckoutState);
   checkoutReady = true;
-  document.querySelectorAll('.dc-table-seat:not(:disabled)').forEach(btn => btn.addEventListener('click', function () {
+  document.querySelectorAll('.dc-table-seat').forEach(btn => btn.addEventListener('click', function (e) {
+    if (this.disabled || this.dataset.available === '0' || this.classList.contains('terisi')) {
+      e.preventDefault();
+      return;
+    }
     document.querySelectorAll('.dc-table-seat').forEach(b => b.classList.remove('selected'));
     this.classList.add('selected');
     if (orderTable) orderTable.value = this.dataset.table;

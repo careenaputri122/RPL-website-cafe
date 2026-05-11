@@ -377,10 +377,10 @@ function auto_sync_table_status()
               AND jp.nama_pesanan = 'dine-in'
         ) AS _occ";
 
-        // Tandai meja yang sedang ditempati pelanggan dine-in
-        db_exec("UPDATE meja SET status = 'terisi' WHERE id_meja IN ($sqlDineIn)");
-        // Bebaskan meja yang tidak ada dine-in aktif
-        db_exec("UPDATE meja SET status = 'tersedia' WHERE id_meja NOT IN (SELECT id_meja FROM ($sqlDineIn) AS _free)");
+        // Tandai meja yang sedang ditempati pelanggan dine-in (skip nonaktif)
+        db_exec("UPDATE meja SET status = 'terisi' WHERE id_meja IN ($sqlDineIn) AND status != 'nonaktif'");
+        // Bebaskan meja yang tidak ada dine-in aktif (skip nonaktif)
+        db_exec("UPDATE meja SET status = 'tersedia' WHERE id_meja NOT IN (SELECT id_meja FROM ($sqlDineIn) AS _free) AND status != 'nonaktif'");
         return;
     }
 
